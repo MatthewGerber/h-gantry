@@ -25,10 +25,10 @@ def main():
     right_stepper = Stepper(
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
-        driver_pin_1=CkPin.GPIO18,
-        driver_pin_2=CkPin.GPIO23,
-        driver_pin_3=CkPin.GPIO24,
-        driver_pin_4=CkPin.GPIO25
+        driver_pin_1=CkPin.GPIO6,
+        driver_pin_2=CkPin.GPIO13,
+        driver_pin_3=CkPin.GPIO19,
+        driver_pin_4=CkPin.GPIO26
     )
 
     gantry = HGantry(
