@@ -16,10 +16,10 @@ def main():
     left_stepper = Stepper(
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
-        driver_pin_1=CkPin.GPIO18,
-        driver_pin_2=CkPin.GPIO23,
-        driver_pin_3=CkPin.GPIO24,
-        driver_pin_4=CkPin.GPIO25
+        driver_pin_1=CkPin.GPIO22,
+        driver_pin_2=CkPin.GPIO27,
+        driver_pin_3=CkPin.GPIO17,
+        driver_pin_4=CkPin.GPIO4
     )
 
     right_stepper = Stepper(
@@ -33,16 +33,18 @@ def main():
 
     gantry = HGantry(
         left_stepper=left_stepper,
-        right_stepper=right_stepper
+        right_stepper=right_stepper,
+        timing_pulley_tooth_count=32,
+        timing_pulley_tooth_pitch_mm=2.0
     )
 
     gantry.start()
     gantry.calibrate()
-    gantry.home()
-    gantry.move_x(20.0)
-    gantry.move_x(-20.0)
-    gantry.move_y(20.0)
-    gantry.move_y(-20.0)
+    # gantry.home()
+    # gantry.move_x(200.0)
+    # gantry.move_x(-200.0)
+    # gantry.move_y(200.0)
+    gantry.move_y(-200.0)
     gantry.stop()
 
     cleanup()
