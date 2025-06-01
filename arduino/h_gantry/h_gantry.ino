@@ -30,7 +30,7 @@ byte left_driver_pin_3;
 byte left_driver_pin_4;
 unsigned int left_stepper_drive_idx;
 unsigned int left_stepper_drive_target;
-byte left_stepper_drive_increment;
+int left_stepper_drive_increment;
 bool left_stepper_inited = false;
 unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
@@ -201,13 +201,15 @@ void loop() {
         SerialX.readBytes(args, CMD_STEP_ARGS_LEN);
         unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
         unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
-        left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
 
         // increment comes in as 0 (decrement) or 1 (increment). set accordingly.
         left_stepper_drive_increment = args[2];
         if (left_stepper_drive_increment == 0) {
           left_stepper_drive_increment = -1;
         }
+
+        left_stepper_drive_target = left_stepper_drive_idx + (left_stepper_num_drives * left_stepper_drive_increment);
+
 
         // set microseconds per drive
         unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
