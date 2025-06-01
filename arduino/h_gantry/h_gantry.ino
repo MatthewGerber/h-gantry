@@ -6,8 +6,11 @@ typedef union {
   byte bytes[FLOAT_BYTES_LEN];
 } floatbytes;
 
-const byte DRIVE_SEQUENCE_LEN = 8;
-/*byte drive_sequence[][DRIVE_SEQUENCE_LEN] = {
+// stepper driver configuration
+const byte STEPPER_NUM_PHASES = 4;
+const byte STEPPER_DRIVES_PER_STEP = 2;
+const byte DRIVE_SEQUENCE_LEN = STEPPER_NUM_PHASES * STEPPER_DRIVES_PER_STEP;
+const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { HIGH, LOW, LOW, LOW },
   { HIGH, HIGH, LOW, LOW },
   { LOW, HIGH, LOW, LOW },
@@ -16,7 +19,8 @@ const byte DRIVE_SEQUENCE_LEN = 8;
   { LOW, LOW, HIGH, HIGH },
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
-};*/
+};
+const unsigned int MIN_US_PER_DRIVE = 800;
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;
@@ -24,12 +28,12 @@ byte left_driver_pin_1;
 byte left_driver_pin_2;
 byte left_driver_pin_3;
 byte left_driver_pin_4;
-byte left_stepper_drive_idx;
-byte left_stepper_drive_target;
+unsigned int left_stepper_drive_idx;
+unsigned int left_stepper_drive_target;
 byte left_stepper_drive_increment;
-unsigned int left_stepper_ms_per_drive;
-unsigned long left_stepper_next_drive_ms;
 bool left_stepper_inited = false;
+unsigned long left_stepper_us_per_drive;
+unsigned long left_stepper_previous_drive_us;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
@@ -37,19 +41,20 @@ const byte RIGHT_STEPPER_ID = 1;
 // top-level command:  command id and component id
 const size_t CMD_BYTES_LEN = 2;
 
-// init components
+// top-level command:  init component
 const byte CMD_INIT = 1;
 const size_t CMD_INIT_STEPPER_ARGS_LEN = 4;
 
-// step
+// top-level command:  step
 const byte CMD_STEP = 2;
 const byte CMD_STEP_ARGS_LEN = 5;
 
+// switch between usb serial (SerialUSB; to write to arduino IDE serial monitor) and tx/rx serial (_UART1_; to write to raspberry pi)
+#define SerialX _UART1_
+
 void setup() {
 
-  //Serial.begin(115200, SERIAL_8N1);
-
-  Serial.begin(9600);
+  SerialX.begin(115200, SERIAL_8N1);
 
 }
 
@@ -79,15 +84,15 @@ void long_to_bytes(long value, byte bytes[]) {
 void write_long(long value) {
   byte bytes[FLOAT_BYTES_LEN];
   long_to_bytes(value, bytes);
-  Serial.write(bytes, FLOAT_BYTES_LEN);
+  SerialX.write(bytes, FLOAT_BYTES_LEN);
 }
 
 void write_float(floatbytes f) {
-  Serial.write(f.bytes, FLOAT_BYTES_LEN);
+  SerialX.write(f.bytes, FLOAT_BYTES_LEN);
 }
 
 void write_bool(bool value) {
-  Serial.write(value);
+  SerialX.write(value);
 }
 
 void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
@@ -97,52 +102,80 @@ void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[3] = src[src_start_idx + 3];
 }
 
+void test_step() {
+
+  if (!left_stepper_inited) {
+    left_driver_pin_1 = 5;
+    pinMode(left_driver_pin_1, OUTPUT);
+    left_driver_pin_2 = 6;
+    pinMode(left_driver_pin_2, OUTPUT);
+    left_driver_pin_3 = 7;
+    pinMode(left_driver_pin_3, OUTPUT);
+    left_driver_pin_4 = 8;
+    pinMode(left_driver_pin_4, OUTPUT);
+    left_stepper_drive_idx = 0;
+    left_stepper_drive_target = left_stepper_drive_idx;
+    left_stepper_drive_increment = 0;
+    left_stepper_inited = true;
+
+    unsigned int left_stepper_num_steps = 1000;
+    unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
+    left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
+    left_stepper_drive_increment = 1;
+
+    // set microseconds per drive
+    unsigned int left_stepper_ms_to_step = 2000;
+    left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
+    if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
+      left_stepper_us_per_drive = MIN_US_PER_DRIVE;
+    }
+    left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
+  }
+}
+
 void loop() {
 
-  Serial.println("hello");
+  // drive the left stepper if needed to reach target
+  if (left_stepper_inited && left_stepper_drive_idx != left_stepper_drive_target) {
 
-  if (left_stepper_inited) {
-    Serial.println("Inited");
-  }
-  else {
-    Serial.println("Not inited");
-  }
+    // check if enough time has elapsed. modular arithmetic handles overflow naturally.
+    unsigned long curr_micros = micros();
+    unsigned long elapsed_micros = curr_micros - left_stepper_previous_drive_us;
+    if (elapsed_micros >= left_stepper_us_per_drive) {
 
-  // drive the left stepper if needed and sufficient time has elapsed
-  /*if (left_stepper_inited) {
-    Serial.println("Driving");
-    if (left_stepper_drive_idx != left_stepper_drive_target && millis() >= left_stepper_next_drive_ms) {
-      digitalWrite(left_driver_pin_1, drive_sequence[left_stepper_drive_idx][0]);
-      digitalWrite(left_driver_pin_2, drive_sequence[left_stepper_drive_idx][1]);
-      digitalWrite(left_driver_pin_3, drive_sequence[left_stepper_drive_idx][2]);
-      digitalWrite(left_driver_pin_4, drive_sequence[left_stepper_drive_idx][3]);
-      left_stepper_drive_idx = (left_stepper_drive_idx + left_stepper_drive_increment) % DRIVE_SEQUENCE_LEN;
-      left_stepper_next_drive_ms = millis() + left_stepper_ms_per_drive;
+      // output current drive sequence
+      byte drive_sequence_idx = left_stepper_drive_idx % DRIVE_SEQUENCE_LEN;
+      digitalWrite(left_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
+      digitalWrite(left_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
+      digitalWrite(left_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
+      digitalWrite(left_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
+      left_stepper_previous_drive_us = curr_micros;
 
+      // increment the drive index. turn driver off if we've reached the target.
+      left_stepper_drive_idx = (left_stepper_drive_idx + left_stepper_drive_increment);
       if (left_stepper_drive_idx == left_stepper_drive_target) {
-        write_bool(false);
+        digitalWrite(left_driver_pin_1, 0);
+        digitalWrite(left_driver_pin_2, 0);
+        digitalWrite(left_driver_pin_3, 0);
+        digitalWrite(left_driver_pin_4, 0);
+        SerialX.println(String(LEFT_STEPPER_ID) + "0");
       }
     }
-  }*/
-
-  Serial.println("also here");
+  }
 
   // process a command sent over the serial connection
-  /*if (false) {  //Serial.available()) {
-
-    Serial.println("serial available");
+  if (SerialX.available()) {
 
     byte command_bytes[CMD_BYTES_LEN];
-    Serial.readBytes(command_bytes, CMD_BYTES_LEN);
+    SerialX.readBytes(command_bytes, CMD_BYTES_LEN);
     byte command = command_bytes[0];
     byte component_id = command_bytes[1];
 
     // initialize a component
     if (command == CMD_INIT) {
-
       if (component_id == LEFT_STEPPER_ID) {
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
-        Serial.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
+        SerialX.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
         left_driver_pin_1 = args[0];
         pinMode(left_driver_pin_1, OUTPUT);
         left_driver_pin_2 = args[1];
@@ -155,53 +188,37 @@ void loop() {
         left_stepper_drive_target = left_stepper_drive_idx;
         left_stepper_drive_increment = 0;
         left_stepper_inited = true;
-      } else if (component_id == RIGHT_STEPPER_ID) {
+        left_stepper_us_per_drive = 0;
+        left_stepper_previous_drive_us = 0;
+        write_bool(true);
       }
-    } else if (command == CMD_STEP) {
-      if (component_id == LEFT_STEPPER_ID) {
-        byte args[CMD_STEP_ARGS_LEN];
-        Serial.readBytes(args, CMD_STEP_ARGS_LEN);
-        unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
-        unsigned int left_stepper_num_drives = left_stepper_num_steps * 2;
-        left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
-        left_stepper_drive_increment = args[2];
-        unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
-        left_stepper_ms_per_drive = int(left_stepper_ms_to_step / float(left_stepper_num_drives));
-        left_stepper_next_drive_ms = millis() + left_stepper_ms_per_drive;
-      } else if (component_id == RIGHT_STEPPER_ID) {
+      else if (component_id == RIGHT_STEPPER_ID) {
       }
     }
-  } 
-  else */
-  
-  if (left_stepper_inited) {
-    Serial.println("already initialized");
-  } 
-  else {
-    Serial.println("initializing");
-    //left_driver_pin_1 = 5;
-    //pinMode(left_driver_pin_1, OUTPUT);
-    /*left_driver_pin_2 = 6;
-    pinMode(left_driver_pin_2, OUTPUT);
-    left_driver_pin_3 = 7;
-    pinMode(left_driver_pin_3, OUTPUT);
-    left_driver_pin_4 = 8;
-    pinMode(left_driver_pin_4, OUTPUT);
-    left_stepper_drive_idx = 0;
-    left_stepper_drive_target = left_stepper_drive_idx;
-    left_stepper_drive_increment = 0;
-    float steps_per_degree = (32.0 / (1.0 / 64.0)) / 360.0;
-    unsigned int left_stepper_num_steps = unsigned int(180 * steps_per_degree);
-    unsigned int left_stepper_num_drives = left_stepper_num_steps * 2;
-    left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
-    left_stepper_drive_increment = 1;
-    unsigned int left_stepper_ms_to_step = 5000;
-    left_stepper_ms_per_drive = int(left_stepper_ms_to_step / float(left_stepper_num_drives));
-    left_stepper_next_drive_ms = millis() + left_stepper_ms_per_drive;*/
-    left_stepper_inited = true;
-    Serial.println("initialized!");
-  }
+    else if (command == CMD_STEP) {
+      if (component_id == LEFT_STEPPER_ID) {
+        byte args[CMD_STEP_ARGS_LEN];
+        SerialX.readBytes(args, CMD_STEP_ARGS_LEN);
+        unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
+        unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
+        left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
 
-  Serial.println("delaying");
-  delay(1000);
+        // increment comes in as 0 (decrement) or 1 (increment). set accordingly.
+        left_stepper_drive_increment = args[2];
+        if (left_stepper_drive_increment == 0) {
+          left_stepper_drive_increment = -1;
+        }
+
+        // set microseconds per drive
+        unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
+        left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
+        if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
+          left_stepper_us_per_drive = MIN_US_PER_DRIVE;
+        }
+        left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
+      }
+      else if (component_id == RIGHT_STEPPER_ID) {
+      }
+    }
+  }
 }

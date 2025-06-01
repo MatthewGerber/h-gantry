@@ -1,6 +1,10 @@
+import serial
+from serial import Serial
+
 from h_gantry.core import HGantry
 from raspberry_py.gpio import setup, cleanup, CkPin
-from raspberry_py.gpio.motors import Stepper
+from raspberry_py.gpio.communication import LockingSerial
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
 
 def main():
@@ -10,25 +14,46 @@ def main():
 
     setup()
 
+    locking_serial = LockingSerial(
+        connection=Serial(
+            port='/dev/serial0',
+            baudrate=115200,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS
+        ),
+        throughput_step_size=0.05
+    )
+
     poles = 32
     output_rotor_ratio = 1 / 64.0
 
     left_stepper = Stepper(
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
-        driver_pin_1=CkPin.GPIO22,
-        driver_pin_2=CkPin.GPIO27,
-        driver_pin_3=CkPin.GPIO17,
-        driver_pin_4=CkPin.GPIO4
+        driver=StepperMotorDriverArduinoUln2003(
+            driver_pin_1=CkPin.GPIO22,
+            driver_pin_2=CkPin.GPIO27,
+            driver_pin_3=CkPin.GPIO17,
+            driver_pin_4=CkPin.GPIO4,
+            identifier=0,
+            serial=locking_serial
+        ),
+        reverse=False
     )
 
     right_stepper = Stepper(
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
-        driver_pin_1=CkPin.GPIO6,
-        driver_pin_2=CkPin.GPIO13,
-        driver_pin_3=CkPin.GPIO19,
-        driver_pin_4=CkPin.GPIO26
+        driver=StepperMotorDriverArduinoUln2003(
+            driver_pin_1=CkPin.GPIO6,
+            driver_pin_2=CkPin.GPIO13,
+            driver_pin_3=CkPin.GPIO19,
+            driver_pin_4=CkPin.GPIO26,
+            identifier=1,
+            serial=locking_serial
+        ),
+        reverse=False
     )
 
     gantry = HGantry(

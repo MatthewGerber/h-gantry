@@ -1,5 +1,4 @@
 from datetime import timedelta
-from time import time
 
 from raspberry_py.gpio.motors import Stepper
 
