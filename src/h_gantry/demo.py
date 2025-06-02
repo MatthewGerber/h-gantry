@@ -37,7 +37,8 @@ def main():
             driver_pin_3=CkPin.GPIO17,
             driver_pin_4=CkPin.GPIO4,
             identifier=0,
-            serial=locking_serial
+            serial=locking_serial,
+            asynchronous=True
         ),
         reverse=False
     )
@@ -51,7 +52,8 @@ def main():
             driver_pin_3=CkPin.GPIO19,
             driver_pin_4=CkPin.GPIO26,
             identifier=1,
-            serial=locking_serial
+            serial=locking_serial,
+            asynchronous=True
         ),
         reverse=False
     )

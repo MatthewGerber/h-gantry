@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from raspberry_py.gpio.motors import Stepper
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
 
 class HGantry:
@@ -19,6 +19,14 @@ class HGantry:
         self.right_stepper = right_stepper
         self.timing_pulley_tooth_count = timing_pulley_tooth_count
         self.timing_pulley_tooth_pitch_mm = timing_pulley_tooth_pitch_mm
+
+        left_driver = self.left_stepper.driver
+        assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
+        self.left_driver = left_driver
+
+        right_driver = self.right_stepper.driver
+        assert isinstance(right_driver, StepperMotorDriverArduinoUln2003)
+        self.right_driver = right_driver
 
         self.x = 0
         self.y = 0
@@ -109,8 +117,9 @@ class HGantry:
 
         steps = int(mm * self.steps_per_mm)
         time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-        self.right_stepper.step(steps, time_to_step)
         self.left_stepper.step(steps, time_to_step)
+        self.right_stepper.step(steps, time_to_step)
+        results = [self.left_driver.serial.connection.readline(), self.right_driver.serial.connection.readline()]
 
     def move_y(
             self,
@@ -121,5 +130,6 @@ class HGantry:
 
         steps = -int(mm * self.steps_per_mm)
         time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-        self.right_stepper.step(steps, time_to_step)
         self.left_stepper.step(-steps, time_to_step)
+        self.right_stepper.step(steps, time_to_step)
+        results = [self.left_driver.serial.connection.readline(), self.right_driver.serial.connection.readline()]
