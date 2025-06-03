@@ -119,7 +119,7 @@ class HGantry:
         time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
         self.left_stepper.step(steps, time_to_step)
         self.right_stepper.step(steps, time_to_step)
-        results = [self.left_driver.serial.connection.readline(), self.right_driver.serial.connection.readline()]
+        results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
 
     def move_y(
             self,
@@ -132,4 +132,4 @@ class HGantry:
         time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
         self.left_stepper.step(-steps, time_to_step)
         self.right_stepper.step(steps, time_to_step)
-        results = [self.left_driver.serial.connection.readline(), self.right_driver.serial.connection.readline()]
+        results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])

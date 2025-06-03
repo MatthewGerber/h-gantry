@@ -2,7 +2,7 @@ import serial
 from serial import Serial
 
 from h_gantry.core import HGantry
-from raspberry_py.gpio import setup, cleanup, CkPin
+from raspberry_py.gpio import setup, cleanup
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
@@ -32,10 +32,10 @@ def main():
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
         driver=StepperMotorDriverArduinoUln2003(
-            driver_pin_1=CkPin.GPIO22,
-            driver_pin_2=CkPin.GPIO27,
-            driver_pin_3=CkPin.GPIO17,
-            driver_pin_4=CkPin.GPIO4,
+            driver_pin_1=5,
+            driver_pin_2=6,
+            driver_pin_3=7,
+            driver_pin_4=8,
             identifier=0,
             serial=locking_serial,
             asynchronous=True
@@ -47,10 +47,10 @@ def main():
         poles=poles,
         output_rotor_ratio=output_rotor_ratio,
         driver=StepperMotorDriverArduinoUln2003(
-            driver_pin_1=CkPin.GPIO6,
-            driver_pin_2=CkPin.GPIO13,
-            driver_pin_3=CkPin.GPIO19,
-            driver_pin_4=CkPin.GPIO26,
+            driver_pin_1=9,
+            driver_pin_2=10,
+            driver_pin_3=11,
+            driver_pin_4=12,
             identifier=1,
             serial=locking_serial,
             asynchronous=True
@@ -68,10 +68,10 @@ def main():
     gantry.start()
     gantry.calibrate()
     # gantry.home()
-    # gantry.move_x(200.0)
-    # gantry.move_x(-200.0)
-    # gantry.move_y(200.0)
-    gantry.move_y(-200.0)
+    gantry.move_x(20.0)
+    gantry.move_x(-20.0)
+    gantry.move_y(20.0)
+    gantry.move_y(-20.0)
     gantry.stop()
 
     cleanup()
