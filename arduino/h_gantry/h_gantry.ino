@@ -60,12 +60,10 @@ const byte CMD_STEP = 2;
 const byte CMD_STEP_ARGS_LEN = 5;
 
 // switch between usb serial (SerialUSB; to write to arduino IDE serial monitor) and tx/rx serial (_UART1_; to write to raspberry pi)
-#define SerialX _UART1_
+#define SerialUART _UART1_
 
 void setup() {
-
-  SerialX.begin(115200, SERIAL_8N1);
-
+  SerialUART.begin(115200, SERIAL_8N1);
 }
 
 long bytes_to_long(byte bytes[]) {
@@ -94,15 +92,15 @@ void long_to_bytes(long value, byte bytes[]) {
 void write_long(long value) {
   byte bytes[FLOAT_BYTES_LEN];
   long_to_bytes(value, bytes);
-  SerialX.write(bytes, FLOAT_BYTES_LEN);
+  SerialUART.write(bytes, FLOAT_BYTES_LEN);
 }
 
 void write_float(floatbytes f) {
-  SerialX.write(f.bytes, FLOAT_BYTES_LEN);
+  SerialUART.write(f.bytes, FLOAT_BYTES_LEN);
 }
 
 void write_bool(bool value) {
-  SerialX.write(value);
+  SerialUART.write(value);
 }
 
 void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
@@ -168,7 +166,7 @@ void loop() {
         digitalWrite(left_driver_pin_2, 0);
         digitalWrite(left_driver_pin_3, 0);
         digitalWrite(left_driver_pin_4, 0);
-        SerialX.println(String(LEFT_STEPPER_ID) + "0");
+        SerialUART.println(String(LEFT_STEPPER_ID) + "0");
       }
     }
   }
@@ -196,25 +194,24 @@ void loop() {
         digitalWrite(right_driver_pin_2, 0);
         digitalWrite(right_driver_pin_3, 0);
         digitalWrite(right_driver_pin_4, 0);
-        SerialX.println(String(RIGHT_STEPPER_ID) + "0");
+        SerialUART.println(String(RIGHT_STEPPER_ID) + "0");
       }
     }
   }
 
   // process a command sent over the serial connection
-  if (SerialX.available()) {
+  if (SerialUART.available()) {
 
     byte command_bytes[CMD_BYTES_LEN];
-    SerialX.readBytes(command_bytes, CMD_BYTES_LEN);
+    SerialUART.readBytes(command_bytes, CMD_BYTES_LEN);
     byte command = command_bytes[0];
     byte component_id = command_bytes[1];
 
     // initialize a component
     if (command == CMD_INIT) {
       if (component_id == LEFT_STEPPER_ID) {
-        Serial.print("Initializing left stepper...");
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
-        SerialX.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
+        SerialUART.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
         left_driver_pin_1 = args[0];
         pinMode(left_driver_pin_1, OUTPUT);
         left_driver_pin_2 = args[1];
@@ -230,12 +227,10 @@ void loop() {
         left_stepper_us_per_drive = 0;
         left_stepper_previous_drive_us = 0;
         write_bool(true);
-        Serial.println("done.");
       }
       else if (component_id == RIGHT_STEPPER_ID) {
-        Serial.print("Initializing right stepper...");
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
-        SerialX.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
+        SerialUART.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
         right_driver_pin_1 = args[0];
         pinMode(right_driver_pin_1, OUTPUT);
         right_driver_pin_2 = args[1];
@@ -251,14 +246,13 @@ void loop() {
         right_stepper_us_per_drive = 0;
         right_stepper_previous_drive_us = 0;
         write_bool(true);
-        Serial.println("done.");
       }
     }
     else if (command == CMD_STEP) {
       if (component_id == LEFT_STEPPER_ID) {
         
         byte args[CMD_STEP_ARGS_LEN];
-        SerialX.readBytes(args, CMD_STEP_ARGS_LEN);
+        SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
         // calculate numbers of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
         unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
@@ -276,12 +270,11 @@ void loop() {
           left_stepper_us_per_drive = MIN_US_PER_DRIVE;
         }
         left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
-
-        Serial.println("Stepping left stepper " + String(left_stepper_num_steps) + " steps in " + String(left_stepper_num_drives) + " drives @ " + String(left_stepper_us_per_drive) + " us/drive.");
       }
       else if (component_id == RIGHT_STEPPER_ID) {
+
         byte args[CMD_STEP_ARGS_LEN];
-        SerialX.readBytes(args, CMD_STEP_ARGS_LEN);
+        SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
         // calculate numbers of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
         unsigned int right_stepper_num_steps = bytes_to_unsigned_int(args, 0);
@@ -299,8 +292,6 @@ void loop() {
           right_stepper_us_per_drive = MIN_US_PER_DRIVE;
         }
         right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;  // drive immediately on next loop
-
-        Serial.println("Stepping right stepper " + String(right_stepper_num_steps) + " steps in " + String(right_stepper_num_drives) + " drives @ " + String(right_stepper_us_per_drive) + " us/drive.");
       }
     }
   }

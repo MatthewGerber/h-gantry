@@ -1,4 +1,6 @@
+import math
 from datetime import timedelta
+from typing import Tuple, List
 
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
@@ -104,7 +106,7 @@ class HGantry:
         # self.left_right_mm = self.left_right_degrees * self.timing_pulley_mm_per_degree
         # self.left_right_mm_per_sec = self.left_right_mm (move_end - move_start)
 
-        self.steps_per_mm = 50.0
+        self.steps_per_mm = 90.0
         self.mm_per_sec = 10.0
         self.calibrated = True
 
@@ -116,10 +118,12 @@ class HGantry:
             raise ValueError('Must calibrate before moving.')
 
         steps = int(mm * self.steps_per_mm)
-        time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-        self.left_stepper.step(steps, time_to_step)
-        self.right_stepper.step(steps, time_to_step)
-        results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
+        if steps != 0:
+            time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
+            self.left_stepper.step(steps, time_to_step)
+            self.right_stepper.step(steps, time_to_step)
+            results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
+            self.x += mm
 
     def move_y(
             self,
@@ -129,7 +133,81 @@ class HGantry:
             raise ValueError('Must calibrate before moving.')
 
         steps = -int(mm * self.steps_per_mm)
-        time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-        self.left_stepper.step(-steps, time_to_step)
-        self.right_stepper.step(steps, time_to_step)
-        results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
+        if steps != 0:
+            time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
+            self.left_stepper.step(-steps, time_to_step)
+            self.right_stepper.step(steps, time_to_step)
+            results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
+            self.y += mm
+
+    def get_move_to(
+            self,
+            x: float,
+            y: float
+    ) -> Tuple[float, float]:
+        """
+        Get the movement to a point.
+
+        :param x: Point's x position.
+        :param y: Point's y position.
+        :return: Movement.
+        """
+
+        return x - self.x, y - self.y
+
+    def move_to_point(
+            self,
+            x: float,
+            y: float
+    ):
+        """
+        Move to a point.
+
+        :param x: X coordinate.
+        :param y: Y coordinate.
+        """
+
+        move_x, move_y = self.get_move_to(x, y)
+        self.move_x(move_x)
+        self.move_y(move_y)
+
+    def trace_points(
+            self,
+            points: List[Tuple[float, float]]
+    ):
+        """
+        Trace a list of points.
+
+        :param points: Points.
+        """
+
+        for x, y in points:
+            self.move_to_point(x, y)
+
+
+def generate_circle_points(
+        center_x: float,
+        center_y: float,
+        radius: float,
+        step_angle: float
+) -> List[Tuple[float, float]]:
+    """
+    Generate circle points.
+
+    :param center_x: Center X.
+    :param center_y: Center Y.
+    :param radius: Radius.
+    :param step_angle: Step angle.
+    :return: Points.
+    """
+
+    step_angle = math.radians(step_angle)
+    points = []
+    angle = 0.0
+    while angle < 2.0 * math.pi:
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((x, y))
+        angle += step_angle
+
+    return points
