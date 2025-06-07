@@ -20,7 +20,7 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
 };
-const unsigned int MIN_US_PER_DRIVE = 800;
+const unsigned int MIN_US_PER_DRIVE = 750;
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;

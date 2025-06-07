@@ -68,12 +68,24 @@ def main():
     gantry.start()
     gantry.calibrate()
 
-    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 2.0)
-    circle_points.append((gantry.x, gantry.y))
-    gantry.trace_points(circle_points)
+    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.25)
+    gantry.move_to_points(circle_points, 100.0, True)
+
     gantry.stop()
 
     cleanup()
+
+
+def test_cross_pattern(
+        gantry: HGantry,
+        speed_mm_per_sec: float
+):
+    gantry.move_to_point(10, 0, speed_mm_per_sec)
+    gantry.move_to_point(-10, 0, speed_mm_per_sec)
+    gantry.move_to_point(0, 0, speed_mm_per_sec)
+    gantry.move_to_point(0, 10, speed_mm_per_sec)
+    gantry.move_to_point(0, -10, speed_mm_per_sec)
+    gantry.move_to_point(0, 0, speed_mm_per_sec)
 
 
 if __name__ == '__main__':

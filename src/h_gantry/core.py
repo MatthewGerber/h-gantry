@@ -51,7 +51,6 @@ class HGantry:
         self.bottom_top_mm_per_sec = 0.0
 
         self.steps_per_mm = 0.0
-        self.mm_per_sec = 0.0
         self.calibrated = False
 
     def start(
@@ -107,38 +106,7 @@ class HGantry:
         # self.left_right_mm_per_sec = self.left_right_mm (move_end - move_start)
 
         self.steps_per_mm = 90.0
-        self.mm_per_sec = 10.0
         self.calibrated = True
-
-    def move_x(
-            self,
-            mm: float
-    ):
-        if not self.calibrated:
-            raise ValueError('Must calibrate before moving.')
-
-        steps = int(mm * self.steps_per_mm)
-        if steps != 0:
-            time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-            self.left_stepper.step(steps, time_to_step)
-            self.right_stepper.step(steps, time_to_step)
-            results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
-            self.x += mm
-
-    def move_y(
-            self,
-            mm: float
-    ):
-        if not self.calibrated:
-            raise ValueError('Must calibrate before moving.')
-
-        steps = -int(mm * self.steps_per_mm)
-        if steps != 0:
-            time_to_step = timedelta(seconds=abs(mm) / self.mm_per_sec)
-            self.left_stepper.step(-steps, time_to_step)
-            self.right_stepper.step(steps, time_to_step)
-            results = sorted([self.left_driver.wait_for_async_result(), self.right_driver.wait_for_async_result()])
-            self.y += mm
 
     def get_move_to(
             self,
@@ -158,38 +126,72 @@ class HGantry:
     def move_to_point(
             self,
             x: float,
-            y: float
+            y: float,
+            mm_per_sec: float
     ):
         """
         Move to a point.
 
         :param x: X coordinate.
         :param y: Y coordinate.
+        :param mm_per_sec: Speed in mm per second.
         """
 
-        move_x, move_y = self.get_move_to(x, y)
-        self.move_x(move_x)
-        self.move_y(move_y)
+        if not self.calibrated:
+            raise ValueError('Must calibrate before moving.')
 
-    def trace_points(
+        # calculate x and y steps to move
+        move_x_mm, move_y_mm = self.get_move_to(x, y)
+        x_steps = int(move_x_mm * self.steps_per_mm)
+        y_steps = int(move_y_mm * self.steps_per_mm)
+
+        # assign steps to the motors
+        left_stepper_steps = x_steps + y_steps
+        right_stepper_steps = x_steps - y_steps
+
+        # calculate time to step
+        distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
+        time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
+
+        # step motors
+        get_result_functions = []
+        if left_stepper_steps != 0:
+            get_result_functions.append(self.left_stepper.step(left_stepper_steps, time_to_step))
+        if right_stepper_steps != 0:
+            get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
+
+        if any(get_result_functions):
+            results = [get_result() for get_result in get_result_functions]
+            self.x += move_x_mm
+            self.y += move_y_mm
+
+    def move_to_points(
             self,
-            points: List[Tuple[float, float]]
+            points: List[Tuple[float, float]],
+            mm_per_sec: float,
+            return_to_current_position: bool
     ):
         """
         Trace a list of points.
 
         :param points: Points.
+        :param mm_per_sec: Speed in mm per second.
+        :param return_to_current_position: Whether to return to the current position after moving to the points.
         """
 
+        if return_to_current_position:
+            points = points.copy()
+            points.append((self.x, self.y))
+
         for x, y in points:
-            self.move_to_point(x, y)
+            self.move_to_point(x, y, mm_per_sec)
 
 
 def generate_circle_points(
         center_x: float,
         center_y: float,
         radius: float,
-        step_angle: float
+        step_angle_deg: float
 ) -> List[Tuple[float, float]]:
     """
     Generate circle points.
@@ -197,17 +199,17 @@ def generate_circle_points(
     :param center_x: Center X.
     :param center_y: Center Y.
     :param radius: Radius.
-    :param step_angle: Step angle.
-    :return: Points.
+    :param step_angle_deg: Step angle (degrees).
+    :return: Points of the circle.
     """
 
-    step_angle = math.radians(step_angle)
+    step_angle_rad = math.radians(step_angle_deg)
     points = []
-    angle = 0.0
-    while angle < 2.0 * math.pi:
-        x = center_x + radius * math.cos(angle)
-        y = center_y + radius * math.sin(angle)
+    curr_angle = 0.0
+    while curr_angle <= 2.0 * math.pi:
+        x = center_x + radius * math.cos(curr_angle)
+        y = center_y + radius * math.sin(curr_angle)
         points.append((x, y))
-        angle += step_angle
+        curr_angle += step_angle_rad
 
     return points
