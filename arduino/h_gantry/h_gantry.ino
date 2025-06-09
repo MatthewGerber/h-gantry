@@ -20,7 +20,7 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
 };
-const unsigned int MIN_US_PER_DRIVE = 750;
+const unsigned int MIN_US_PER_DRIVE = 1000;
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;
@@ -147,8 +147,7 @@ void loop() {
   if (left_stepper_inited && left_stepper_drive_idx != left_stepper_drive_target) {
 
     // check if enough time has elapsed. modular arithmetic handles overflow naturally.
-    unsigned long curr_micros = micros();
-    unsigned long elapsed_micros = curr_micros - left_stepper_previous_drive_us;
+    unsigned long elapsed_micros = micros() - left_stepper_previous_drive_us;
     if (elapsed_micros >= left_stepper_us_per_drive) {
 
       // output current drive sequence
@@ -157,7 +156,7 @@ void loop() {
       digitalWrite(left_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
       digitalWrite(left_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
       digitalWrite(left_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-      left_stepper_previous_drive_us = curr_micros;
+      left_stepper_previous_drive_us = micros();
 
       // increment the drive index. turn driver off if we've reached the target.
       left_stepper_drive_idx = (left_stepper_drive_idx + left_stepper_drive_increment);
@@ -175,8 +174,7 @@ void loop() {
   if (right_stepper_inited && right_stepper_drive_idx != right_stepper_drive_target) {
 
     // check if enough time has elapsed. modular arithmetic handles overflow naturally.
-    unsigned long curr_micros = micros();
-    unsigned long elapsed_micros = curr_micros - right_stepper_previous_drive_us;
+    unsigned long elapsed_micros = micros() - right_stepper_previous_drive_us;
     if (elapsed_micros >= right_stepper_us_per_drive) {
 
       // output current drive sequence
@@ -185,7 +183,7 @@ void loop() {
       digitalWrite(right_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
       digitalWrite(right_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
       digitalWrite(right_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-      right_stepper_previous_drive_us = curr_micros;
+      right_stepper_previous_drive_us = micros();
 
       // increment the drive index. turn driver off if we've reached the target.
       right_stepper_drive_idx = (right_stepper_drive_idx + right_stepper_drive_increment);

@@ -67,8 +67,8 @@ def main():
 
     gantry.start()
     gantry.calibrate()
-    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.25)
-    gantry.move_to_points(circle_points, 10.0, True)
+    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
+    gantry.move_to_points(circle_points, 100.0, True)
 
     gantry.stop()
 
