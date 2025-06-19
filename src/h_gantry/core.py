@@ -160,8 +160,13 @@ class HGantry:
         if right_stepper_steps != 0:
             get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
 
+        # process results
         if any(get_result_functions):
-            results = [get_result() for get_result in get_result_functions]
+            results = [
+                get_result().split(',')
+                for get_result in get_result_functions
+            ]
+            print(f'Step results:  {results}')
             self.x += move_x_mm
             self.y += move_y_mm
 

@@ -28,12 +28,13 @@ byte left_driver_pin_1;
 byte left_driver_pin_2;
 byte left_driver_pin_3;
 byte left_driver_pin_4;
-unsigned int left_stepper_drive_idx;
-unsigned int left_stepper_drive_target;
+long left_stepper_drive_idx;
+long left_stepper_drive_target;
 int left_stepper_drive_increment;
 bool left_stepper_inited = false;
 unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
+unsigned long left_stepper_limit_skipped_increments;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
@@ -41,12 +42,21 @@ byte right_driver_pin_1;
 byte right_driver_pin_2;
 byte right_driver_pin_3;
 byte right_driver_pin_4;
-unsigned int right_stepper_drive_idx;
-unsigned int right_stepper_drive_target;
+long right_stepper_drive_idx;
+long right_stepper_drive_target;
 int right_stepper_drive_increment;
 bool right_stepper_inited = false;
 unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
+unsigned long right_stepper_limit_skipped_increments;
+
+// limit switches
+const byte LIMIT_SWITCHES_ID = 2;
+byte left_limit_switch_pin;
+byte right_limit_switch_pin;
+byte bottom_limit_switch_pin;
+byte top_limit_switch_pin;
+bool limit_switches_inited = false;
 
 // top-level command:  command id and component id
 const size_t CMD_BYTES_LEN = 2;
@@ -54,6 +64,7 @@ const size_t CMD_BYTES_LEN = 2;
 // top-level command:  init component
 const byte CMD_INIT = 1;
 const size_t CMD_INIT_STEPPER_ARGS_LEN = 4;
+const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 
 // top-level command:  step
 const byte CMD_STEP = 2;
@@ -63,6 +74,7 @@ const byte CMD_STEP_ARGS_LEN = 5;
 #define SerialUART _UART1_
 
 void setup() {
+  SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 }
 
@@ -141,59 +153,93 @@ void test_step() {
   }
 }
 
+byte mod(long x, byte y){
+  return x < 0 ? ((x+1) % y) + y - 1 : x % y;
+}
+
+void drive_left_stepper() {
+  byte drive_sequence_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
+  digitalWrite(left_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
+  digitalWrite(left_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
+  digitalWrite(left_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
+  digitalWrite(left_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
+  left_stepper_previous_drive_us = micros();
+}
+
+void drive_right_stepper() {
+  byte drive_sequence_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
+  digitalWrite(right_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
+  digitalWrite(right_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
+  digitalWrite(right_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
+  digitalWrite(right_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
+  right_stepper_previous_drive_us = micros();
+}
+
 void loop() {
 
-  // drive the left stepper if needed to reach target
-  if (left_stepper_inited && left_stepper_drive_idx != left_stepper_drive_target) {
+  /* check whether the cart is moving left, right, up, and down. this calculation is based on the 
+   * following equations.
+   * 
+   * ...
+   * 
+   */ 
+  bool moving_left = false;
+  bool moving_right = false;
+  bool moving_up = false;
+  bool moving_down = false;
+  if (left_stepper_inited && right_stepper_inited) {
+    long left_stepper_drives_remaining = left_stepper_drive_target - left_stepper_drive_idx;
+    long right_stepper_drives_remaining = right_stepper_drive_target - right_stepper_drive_idx;
+    moving_left = left_stepper_drives_remaining + right_stepper_drives_remaining < 0;
+    moving_right = left_stepper_drives_remaining + right_stepper_drives_remaining > 0; 
+    moving_down = left_stepper_drives_remaining - right_stepper_drives_remaining < 0;
+    moving_up = left_stepper_drives_remaining - right_stepper_drives_remaining > 0;
+  }
 
-    // check if enough time has elapsed. modular arithmetic handles overflow naturally.
-    unsigned long elapsed_micros = micros() - left_stepper_previous_drive_us;
-    if (elapsed_micros >= left_stepper_us_per_drive) {
-
-      // output current drive sequence
-      byte drive_sequence_idx = left_stepper_drive_idx % DRIVE_SEQUENCE_LEN;
-      digitalWrite(left_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
-      digitalWrite(left_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
-      digitalWrite(left_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
-      digitalWrite(left_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-      left_stepper_previous_drive_us = micros();
-
-      // increment the drive index. turn driver off if we've reached the target.
-      left_stepper_drive_idx = (left_stepper_drive_idx + left_stepper_drive_increment);
-      if (left_stepper_drive_idx == left_stepper_drive_target) {
-        digitalWrite(left_driver_pin_1, 0);
-        digitalWrite(left_driver_pin_2, 0);
-        digitalWrite(left_driver_pin_3, 0);
-        digitalWrite(left_driver_pin_4, 0);
-        SerialUART.println(String(LEFT_STEPPER_ID) + "0");
-      }
+  // check whether the gantry has hit a limit and must stop
+  bool limited = false;
+  if (limit_switches_inited) {
+    bool left_limit_switch_pressed = !digitalRead(left_limit_switch_pin);
+    bool right_limit_switch_pressed = !digitalRead(right_limit_switch_pin);
+    bool bottom_limit_switch_pressed = !digitalRead(bottom_limit_switch_pin);
+    bool top_limit_switch_pressed = !digitalRead(top_limit_switch_pin);
+    if (
+      (moving_left && left_limit_switch_pressed) || 
+      (moving_right && right_limit_switch_pressed) ||
+      (moving_down && bottom_limit_switch_pressed) ||
+      (moving_up && top_limit_switch_pressed)
+    ) {
+      limited = true;
     }
   }
 
-  // drive the right stepper if needed to reach target
-  if (right_stepper_inited && right_stepper_drive_idx != right_stepper_drive_target) {
+  // drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+  if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
+    if (limited) {
+      left_stepper_limit_skipped_increments += left_stepper_drive_increment;
+    }
+    else {
+      drive_left_stepper();
+    }
+    left_stepper_drive_idx += left_stepper_drive_increment;
+    if (left_stepper_drive_idx == left_stepper_drive_target) {
+      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_increments));
+      left_stepper_drive_increment = 0;
+    }
+  }
 
-    // check if enough time has elapsed. modular arithmetic handles overflow naturally.
-    unsigned long elapsed_micros = micros() - right_stepper_previous_drive_us;
-    if (elapsed_micros >= right_stepper_us_per_drive) {
-
-      // output current drive sequence
-      byte drive_sequence_idx = right_stepper_drive_idx % DRIVE_SEQUENCE_LEN;
-      digitalWrite(right_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
-      digitalWrite(right_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
-      digitalWrite(right_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
-      digitalWrite(right_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-      right_stepper_previous_drive_us = micros();
-
-      // increment the drive index. turn driver off if we've reached the target.
-      right_stepper_drive_idx = (right_stepper_drive_idx + right_stepper_drive_increment);
-      if (right_stepper_drive_idx == right_stepper_drive_target) {
-        digitalWrite(right_driver_pin_1, 0);
-        digitalWrite(right_driver_pin_2, 0);
-        digitalWrite(right_driver_pin_3, 0);
-        digitalWrite(right_driver_pin_4, 0);
-        SerialUART.println(String(RIGHT_STEPPER_ID) + "0");
-      }
+  // drive the right stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+  if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
+    if (limited) {
+      right_stepper_limit_skipped_increments += right_stepper_drive_increment;
+    }
+    else {
+      drive_right_stepper();
+    }
+    right_stepper_drive_idx += right_stepper_drive_increment;
+    if (right_stepper_drive_idx == right_stepper_drive_target) {
+      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_increments));
+      right_stepper_drive_increment = 0;
     }
   }
 
@@ -221,9 +267,10 @@ void loop() {
         left_stepper_drive_idx = 0;
         left_stepper_drive_target = left_stepper_drive_idx;
         left_stepper_drive_increment = 0;
-        left_stepper_inited = true;
         left_stepper_us_per_drive = 0;
         left_stepper_previous_drive_us = 0;
+        drive_left_stepper();
+        left_stepper_inited = true;
         write_bool(true);
       }
       else if (component_id == RIGHT_STEPPER_ID) {
@@ -240,10 +287,24 @@ void loop() {
         right_stepper_drive_idx = 0;
         right_stepper_drive_target = right_stepper_drive_idx;
         right_stepper_drive_increment = 0;
-        right_stepper_inited = true;
         right_stepper_us_per_drive = 0;
         right_stepper_previous_drive_us = 0;
+        drive_right_stepper();
+        right_stepper_inited = true;
         write_bool(true);
+      }
+      else if (component_id == LIMIT_SWITCHES_ID) {
+        byte args[CMD_INIT_LIMIT_SWITCHES_ARGS_LEN];
+        SerialUART.readBytes(args, CMD_INIT_LIMIT_SWITCHES_ARGS_LEN);
+        left_limit_switch_pin = args[0];
+        pinMode(left_limit_switch_pin, INPUT);
+        right_limit_switch_pin = args[0];
+        pinMode(right_limit_switch_pin, INPUT);
+        bottom_limit_switch_pin = args[0];
+        pinMode(bottom_limit_switch_pin, INPUT);
+        top_limit_switch_pin = args[0];
+        pinMode(top_limit_switch_pin, INPUT);
+        limit_switches_inited = true;
       }
     }
     else if (command == CMD_STEP) {
@@ -259,7 +320,9 @@ void loop() {
         if (left_stepper_drive_increment == 0) {
           left_stepper_drive_increment = -1;
         }
-        left_stepper_drive_target = left_stepper_drive_idx + (left_stepper_num_drives * left_stepper_drive_increment);
+        left_stepper_drive_idx = mod(left_stepper_drive_idx + left_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+        left_stepper_drive_target = left_stepper_drive_idx + ((left_stepper_num_drives - 1) * left_stepper_drive_increment);
+        left_stepper_limit_skipped_increments = 0;
 
         // set microseconds per drive based on ms per drive
         unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
@@ -281,7 +344,9 @@ void loop() {
         if (right_stepper_drive_increment == 0) {
           right_stepper_drive_increment = -1;
         }
-        right_stepper_drive_target = right_stepper_drive_idx + (right_stepper_num_drives * right_stepper_drive_increment);
+        right_stepper_drive_idx = mod(right_stepper_drive_idx + right_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+        right_stepper_drive_target = right_stepper_drive_idx + ((right_stepper_num_drives - 1) * right_stepper_drive_increment);
+        right_stepper_limit_skipped_increments = 0;
 
         // set microseconds per drive based on ms per drive
         unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
