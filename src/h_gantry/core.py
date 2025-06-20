@@ -2,6 +2,7 @@ import math
 from datetime import timedelta
 from typing import Tuple, List
 
+from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
 
@@ -15,12 +16,22 @@ class HGantry:
             left_stepper: Stepper,
             right_stepper: Stepper,
             timing_pulley_tooth_count: int,
-            timing_pulley_tooth_pitch_mm: float
+            timing_pulley_tooth_pitch_mm: float,
+            left_limit_switch_arduino_pin: int,
+            right_limit_switch_arduino_pin: int,
+            bottom_limit_switch_arduino_pin: int,
+            top_limit_switch_arduino_pin: int,
+            arduino_serial: LockingSerial
     ):
         self.left_stepper = left_stepper
         self.right_stepper = right_stepper
         self.timing_pulley_tooth_count = timing_pulley_tooth_count
         self.timing_pulley_tooth_pitch_mm = timing_pulley_tooth_pitch_mm
+        self.left_limit_switch_arduino_pin = left_limit_switch_arduino_pin
+        self.right_limit_switch_arduino_pin = right_limit_switch_arduino_pin
+        self.bottom_limit_switch_arduino_pin = bottom_limit_switch_arduino_pin
+        self.top_limit_switch_arduino_pin = top_limit_switch_arduino_pin
+        self.arduino_serial = arduino_serial
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
@@ -56,12 +67,26 @@ class HGantry:
     def start(
             self
     ):
+        # write 3 commands
+        self.arduino_serial.write_then_read((3).to_bytes(), 0, False)
         self.left_stepper.start()
         self.right_stepper.start()
+        limit_switches_inited = bool(self.arduino_serial.write_then_read(
+            (1).to_bytes(1) +  # init
+            (2).to_bytes(1) +  # limit switches
+            self.left_limit_switch_arduino_pin.to_bytes(1) +
+            self.right_limit_switch_arduino_pin.to_bytes(1) +
+            self.bottom_limit_switch_arduino_pin.to_bytes(1) +
+            self.top_limit_switch_arduino_pin.to_bytes(1),
+            1,
+            False
+        ))
+        assert limit_switches_inited
 
     def stop(
             self
     ):
+        self.arduino_serial.write_then_read((2).to_bytes(), 0, False)
         self.left_stepper.stop()
         self.right_stepper.stop()
 
@@ -147,17 +172,21 @@ class HGantry:
 
         # assign steps to the motors
         left_stepper_steps = x_steps + y_steps
+        left_stepper_has_steps = left_stepper_steps != 0
         right_stepper_steps = x_steps - y_steps
+        right_stepper_has_steps = right_stepper_steps != 0
 
         # calculate time to step
         distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
         # step motors
+        num_commands = left_stepper_has_steps + right_stepper_has_steps
+        self.arduino_serial.write_then_read(num_commands.to_bytes(), 0, False)
         get_result_functions = []
-        if left_stepper_steps != 0:
+        if left_stepper_has_steps:
             get_result_functions.append(self.left_stepper.step(left_stepper_steps, time_to_step))
-        if right_stepper_steps != 0:
+        if right_stepper_has_steps:
             get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
 
         # process results

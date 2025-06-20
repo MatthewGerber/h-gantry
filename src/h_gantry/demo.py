@@ -62,7 +62,12 @@ def main():
         left_stepper=left_stepper,
         right_stepper=right_stepper,
         timing_pulley_tooth_count=32,
-        timing_pulley_tooth_pitch_mm=2.0
+        timing_pulley_tooth_pitch_mm=2.0,
+        left_limit_switch_arduino_pin=3,
+        right_limit_switch_arduino_pin=4,
+        bottom_limit_switch_arduino_pin=2,
+        top_limit_switch_arduino_pin=13,
+        arduino_serial=locking_serial
     )
 
     gantry.start()
