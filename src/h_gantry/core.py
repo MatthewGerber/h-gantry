@@ -67,8 +67,8 @@ class HGantry:
     def start(
             self
     ):
-        # write 3 commands
-        self.arduino_serial.write_then_read((3).to_bytes(), 0, False)
+        # write 3 init commands:  2 steppers and the limit switches
+        self.arduino_serial.write_then_read((3).to_bytes(1), 0, False)
         self.left_stepper.start()
         self.right_stepper.start()
         limit_switches_inited = bool(self.arduino_serial.write_then_read(
@@ -86,7 +86,7 @@ class HGantry:
     def stop(
             self
     ):
-        self.arduino_serial.write_then_read((2).to_bytes(), 0, False)
+        self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()
         self.right_stepper.stop()
 
@@ -182,22 +182,50 @@ class HGantry:
 
         # step motors
         num_commands = left_stepper_has_steps + right_stepper_has_steps
-        self.arduino_serial.write_then_read(num_commands.to_bytes(), 0, False)
+        self.arduino_serial.write_then_read(num_commands.to_bytes(1), 0, False)
         get_result_functions = []
         if left_stepper_has_steps:
             get_result_functions.append(self.left_stepper.step(left_stepper_steps, time_to_step))
+        else:
+            get_result_functions.append(lambda: f'{self.left_stepper.id},0')
         if right_stepper_has_steps:
             get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
+        else:
+            get_result_functions.append(lambda: f'{self.right_stepper.id},0')
 
-        # process results
-        if any(get_result_functions):
-            results = [
-                get_result().split(',')
-                for get_result in get_result_functions
-            ]
-            print(f'Step results:  {results}')
-            self.x += move_x_mm
-            self.y += move_y_mm
+        # process results, obtaining skipped steps if any.
+        stepper_id_skipped_steps = sorted([
+            tuple(int(s) for s in get_result().split(','))
+            for get_result in get_result_functions
+        ])
+        assert len(stepper_id_skipped_steps) == 2
+        print(f'Step results:  {stepper_id_skipped_steps}')
+
+        # advance x, y positions, minus any skipped movement due to limit switches.
+        skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
+            stepper_id_skipped_steps[0][1],
+            stepper_id_skipped_steps[1][1]
+        )
+        self.x += move_x_mm - skipped_x_mm
+        self.y += move_y_mm - skipped_y_mm
+
+    def get_x_mm_y_mm_from_steps(
+            self,
+            left_stepper_steps: int,
+            right_stepper_steps: int
+    ) -> Tuple[float, float]:
+        """
+        Get x and y travel (mm) from left and right stepper steps.
+
+        :param left_stepper_steps: Left stepper steps.
+        :param right_stepper_steps: Right stepper steps.
+        :return: 2-tuple of x and y travel (mm).
+        """
+
+        return (
+            (left_stepper_steps + right_stepper_steps) / (2.0 * self.steps_per_mm),
+            (left_stepper_steps - right_stepper_steps) / (2.0 * self.steps_per_mm)
+        )
 
     def move_to_points(
             self,

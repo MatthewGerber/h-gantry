@@ -59,6 +59,7 @@ byte top_limit_switch_pin;
 bool limit_switches_inited = false;
 
 // top-level command:  command id and component id
+const size_t NUM_COMMANDS_BYTES_LEN = 1;
 const size_t CMD_BYTES_LEN = 2;
 
 // top-level command:  init component
@@ -153,7 +154,7 @@ void test_step() {
 }
 
 byte mod(long x, byte y){
-  return x < 0 ? ((x+1) % y) + y - 1 : x % y;
+  return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
 
 void drive_left_stepper() {
@@ -189,14 +190,24 @@ void loop() {
   if (left_stepper_inited && right_stepper_inited) {
     long left_stepper_drives_remaining = left_stepper_drive_target - left_stepper_drive_idx;
     long right_stepper_drives_remaining = right_stepper_drive_target - right_stepper_drive_idx;
-    moving_left = left_stepper_drives_remaining + right_stepper_drives_remaining < 0;
-    moving_right = left_stepper_drives_remaining + right_stepper_drives_remaining > 0; 
-    moving_down = left_stepper_drives_remaining - right_stepper_drives_remaining < 0;
-    moving_up = left_stepper_drives_remaining - right_stepper_drives_remaining > 0;
+
+    long left_plus_right = left_stepper_drives_remaining + right_stepper_drives_remaining;
+    if (left_plus_right < 0) {
+      moving_left = true;
+    } else if (left_plus_right > 0) {
+      moving_right = true;
+    }
+
+    long left_minus_right = left_stepper_drives_remaining - right_stepper_drives_remaining;
+    if (left_minus_right < 0) {
+      moving_down = true;
+    } else if (left_minus_right > 0) {
+      moving_up = true;
+    }
   }
 
-  // check whether the gantry has hit a limit and must stop
-  bool limited = false;
+  // check whether the gantry has hit a limit and must stop. this is indicated by pressing a limit switch in the direction of travel.
+  bool limited_travel = false;
   if (limit_switches_inited) {
     bool left_limit_switch_pressed = !digitalRead(left_limit_switch_pin);
     bool right_limit_switch_pressed = !digitalRead(right_limit_switch_pin);
@@ -208,13 +219,16 @@ void loop() {
       (moving_down && bottom_limit_switch_pressed) ||
       (moving_up && top_limit_switch_pressed)
     ) {
-      limited = true;
+      limited_travel = true;
     }
   }
 
-  // drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+  /* drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
+   * caller when the drive index reaches the target.
+   */
   if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
-    if (limited) {
+    if (limited_travel) {
       left_stepper_limit_skipped_increments += left_stepper_drive_increment;
     }
     else {
@@ -222,14 +236,17 @@ void loop() {
     }
     left_stepper_drive_idx += left_stepper_drive_increment;
     if (left_stepper_drive_idx == left_stepper_drive_target) {
-      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_increments));
-      left_stepper_drive_increment = 0;
+      unsigned long left_stepper_limit_skipped_steps = left_stepper_limit_skipped_increments / STEPPER_DRIVES_PER_STEP;
+      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_steps));
     }
   }
 
-  // drive the right stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+  /* drive the right stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
+   * caller when the drive index reaches the target.
+   */
   if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
-    if (limited) {
+    if (limited_travel) {
       right_stepper_limit_skipped_increments += right_stepper_drive_increment;
     }
     else {
@@ -237,8 +254,8 @@ void loop() {
     }
     right_stepper_drive_idx += right_stepper_drive_increment;
     if (right_stepper_drive_idx == right_stepper_drive_target) {
-      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_increments));
-      right_stepper_drive_increment = 0;
+      unsigned long right_stepper_limit_skipped_steps = right_stepper_limit_skipped_increments / STEPPER_DRIVES_PER_STEP;
+      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_steps));
     }
   }
 
@@ -246,11 +263,11 @@ void loop() {
   if (SerialUART.available()) {
 
     // read number of commands to process
-    byte num_commands_bytes[1];
-    SerialUART.readBytes(num_commands_bytes, 1);
+    byte num_commands_bytes[NUM_COMMANDS_BYTES_LEN];
+    SerialUART.readBytes(num_commands_bytes, NUM_COMMANDS_BYTES_LEN);
     byte num_commands = num_commands_bytes[0];
 
-    // process commands
+    // process each command
     for (int i = 0; i < num_commands; ++i) {
 
       byte command_bytes[CMD_BYTES_LEN];
