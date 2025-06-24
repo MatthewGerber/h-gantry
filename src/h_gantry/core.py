@@ -196,7 +196,6 @@ class HGantry:
             for stepper_id, skipped_drives in [tuple(int(s) for s in get_result().split(','))]
         ])
         assert len(stepper_id_skipped_steps) == 2
-        print(f'Step results:  {stepper_id_skipped_steps}')
 
         # advance x, y positions, minus any skipped movement due to limit switches.
         skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(

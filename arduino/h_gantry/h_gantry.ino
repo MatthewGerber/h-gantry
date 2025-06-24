@@ -34,7 +34,7 @@ int left_stepper_drive_increment;
 bool left_stepper_inited = false;
 unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
-unsigned long left_stepper_limit_skipped_drives;
+long left_stepper_limit_skipped_drives;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
@@ -48,7 +48,7 @@ int right_stepper_drive_increment;
 bool right_stepper_inited = false;
 unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
-unsigned long right_stepper_limit_skipped_drives;
+long right_stepper_limit_skipped_drives;
 
 // limit switches
 const byte LIMIT_SWITCHES_ID = 2;
@@ -70,6 +70,9 @@ const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 // top-level command:  step
 const byte CMD_STEP = 2;
 const byte CMD_STEP_ARGS_LEN = 5;
+
+// top-level command:  stop
+const byte CMD_STOP = 3;
 
 // switch between usb serial (SerialUSB; to write to arduino IDE serial monitor) and tx/rx serial (_UART1_; to write to raspberry pi)
 #define SerialUART _UART1_
@@ -166,6 +169,13 @@ void drive_left_stepper() {
   left_stepper_previous_drive_us = micros();
 }
 
+void stop_left_stepper() {
+  digitalWrite(left_driver_pin_1, LOW);
+  digitalWrite(left_driver_pin_2, LOW);
+  digitalWrite(left_driver_pin_3, LOW);
+  digitalWrite(left_driver_pin_4, LOW);
+}
+
 void drive_right_stepper() {
   byte drive_sequence_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
   digitalWrite(right_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
@@ -173,6 +183,13 @@ void drive_right_stepper() {
   digitalWrite(right_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
   digitalWrite(right_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
   right_stepper_previous_drive_us = micros();
+}
+
+void stop_right_stepper() {
+  digitalWrite(right_driver_pin_1, LOW);
+  digitalWrite(right_driver_pin_2, LOW);
+  digitalWrite(right_driver_pin_3, LOW);
+  digitalWrite(right_driver_pin_4, LOW);
 }
 
 void loop() {
@@ -209,10 +226,10 @@ void loop() {
   // check whether the gantry has hit a limit and must stop. this is indicated by pressing a limit switch in the direction of travel.
   bool limited_travel = false;
   if (limit_switches_inited) {
-    bool left_limit_switch_pressed = !digitalRead(left_limit_switch_pin);
-    bool right_limit_switch_pressed = !digitalRead(right_limit_switch_pin);
+    bool left_limit_switch_pressed = false; // !digitalRead(left_limit_switch_pin);
+    bool right_limit_switch_pressed = false; // !digitalRead(right_limit_switch_pin);
     bool bottom_limit_switch_pressed = !digitalRead(bottom_limit_switch_pin);
-    bool top_limit_switch_pressed = !digitalRead(top_limit_switch_pin);
+    bool top_limit_switch_pressed = false; // !digitalRead(top_limit_switch_pin);
     if (
       (moving_left && left_limit_switch_pressed) || 
       (moving_right && right_limit_switch_pressed) ||
@@ -378,6 +395,16 @@ void loop() {
             right_stepper_us_per_drive = MIN_US_PER_DRIVE;
           }
           right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;  // drive immediately on next loop
+        }
+      }
+      if (command == CMD_STOP) {
+        if (component_id == LEFT_STEPPER_ID && left_stepper_inited) {
+          stop_left_stepper();
+          write_bool(true);
+        }
+        else if (component_id == RIGHT_STEPPER_ID && right_stepper_inited) {
+          stop_right_stepper();
+          write_bool(true);
         }
       }
     }
