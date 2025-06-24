@@ -34,7 +34,7 @@ int left_stepper_drive_increment;
 bool left_stepper_inited = false;
 unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
-unsigned long left_stepper_limit_skipped_increments;
+unsigned long left_stepper_limit_skipped_drives;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
@@ -48,7 +48,7 @@ int right_stepper_drive_increment;
 bool right_stepper_inited = false;
 unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
-unsigned long right_stepper_limit_skipped_increments;
+unsigned long right_stepper_limit_skipped_drives;
 
 // limit switches
 const byte LIMIT_SWITCHES_ID = 2;
@@ -229,15 +229,14 @@ void loop() {
    */
   if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
     if (limited_travel) {
-      left_stepper_limit_skipped_increments += left_stepper_drive_increment;
+      left_stepper_limit_skipped_drives += left_stepper_drive_increment;
     }
     else {
       drive_left_stepper();
     }
     left_stepper_drive_idx += left_stepper_drive_increment;
     if (left_stepper_drive_idx == left_stepper_drive_target) {
-      unsigned long left_stepper_limit_skipped_steps = left_stepper_limit_skipped_increments / STEPPER_DRIVES_PER_STEP;
-      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_steps));
+      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_drives));
     }
   }
 
@@ -247,15 +246,14 @@ void loop() {
    */
   if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
     if (limited_travel) {
-      right_stepper_limit_skipped_increments += right_stepper_drive_increment;
+      right_stepper_limit_skipped_drives += right_stepper_drive_increment;
     }
     else {
       drive_right_stepper();
     }
     right_stepper_drive_idx += right_stepper_drive_increment;
     if (right_stepper_drive_idx == right_stepper_drive_target) {
-      unsigned long right_stepper_limit_skipped_steps = right_stepper_limit_skipped_increments / STEPPER_DRIVES_PER_STEP;
-      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_steps));
+      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_drives));
     }
   }
 
@@ -347,7 +345,7 @@ void loop() {
           }
           left_stepper_drive_idx = mod(left_stepper_drive_idx + left_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
           left_stepper_drive_target = left_stepper_drive_idx + ((left_stepper_num_drives - 1) * left_stepper_drive_increment);
-          left_stepper_limit_skipped_increments = 0;
+          left_stepper_limit_skipped_drives = 0;
 
           // set microseconds per drive based on ms per drive
           unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
@@ -371,7 +369,7 @@ void loop() {
           }
           right_stepper_drive_idx = mod(right_stepper_drive_idx + right_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
           right_stepper_drive_target = right_stepper_drive_idx + ((right_stepper_num_drives - 1) * right_stepper_drive_increment);
-          right_stepper_limit_skipped_increments = 0;
+          right_stepper_limit_skipped_drives = 0;
 
           // set microseconds per drive based on ms per drive
           unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);

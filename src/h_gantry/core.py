@@ -15,23 +15,21 @@ class HGantry:
             self,
             left_stepper: Stepper,
             right_stepper: Stepper,
-            timing_pulley_tooth_count: int,
-            timing_pulley_tooth_pitch_mm: float,
             left_limit_switch_arduino_pin: int,
             right_limit_switch_arduino_pin: int,
             bottom_limit_switch_arduino_pin: int,
             top_limit_switch_arduino_pin: int,
-            arduino_serial: LockingSerial
+            arduino_serial: LockingSerial,
+            timing_pulley_dia_mm: float
     ):
         self.left_stepper = left_stepper
         self.right_stepper = right_stepper
-        self.timing_pulley_tooth_count = timing_pulley_tooth_count
-        self.timing_pulley_tooth_pitch_mm = timing_pulley_tooth_pitch_mm
         self.left_limit_switch_arduino_pin = left_limit_switch_arduino_pin
         self.right_limit_switch_arduino_pin = right_limit_switch_arduino_pin
         self.bottom_limit_switch_arduino_pin = bottom_limit_switch_arduino_pin
         self.top_limit_switch_arduino_pin = top_limit_switch_arduino_pin
         self.arduino_serial = arduino_serial
+        self.timing_pulley_dia_mm = timing_pulley_dia_mm
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
@@ -44,8 +42,9 @@ class HGantry:
         self.x = 0
         self.y = 0
 
-        self.timing_pulley_mm = self.timing_pulley_tooth_count * self.timing_pulley_tooth_pitch_mm
-        self.timing_pulley_mm_per_degree = self.timing_pulley_mm / 360.0
+        self.timing_pulley_circ_mm = self.timing_pulley_dia_mm * math.pi
+        self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
+        self.steps_per_mm = self.left_stepper.steps_per_degree / self.timing_pulley_mm_per_degree
 
         self.left_limit_step = 0
         self.right_limit_step = 0
@@ -60,8 +59,6 @@ class HGantry:
         self.bottom_top_degrees = 0.0
         self.bottom_top_mm = 0.0
         self.bottom_top_mm_per_sec = 0.0
-
-        self.steps_per_mm = 0.0
         self.calibrated = False
 
     def start(
@@ -130,7 +127,6 @@ class HGantry:
         # self.left_right_mm = self.left_right_degrees * self.timing_pulley_mm_per_degree
         # self.left_right_mm_per_sec = self.left_right_mm (move_end - move_start)
 
-        self.steps_per_mm = 90.0
         self.calibrated = True
 
     def get_move_to(
@@ -172,15 +168,15 @@ class HGantry:
 
         # assign steps to the motors
         left_stepper_steps = x_steps + y_steps
-        left_stepper_has_steps = left_stepper_steps != 0
         right_stepper_steps = x_steps - y_steps
-        right_stepper_has_steps = right_stepper_steps != 0
 
         # calculate time to step
         distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
         # step motors
+        left_stepper_has_steps = left_stepper_steps != 0
+        right_stepper_has_steps = right_stepper_steps != 0
         num_commands = left_stepper_has_steps + right_stepper_has_steps
         self.arduino_serial.write_then_read(num_commands.to_bytes(1), 0, False)
         get_result_functions = []
@@ -193,10 +189,11 @@ class HGantry:
         else:
             get_result_functions.append(lambda: f'{self.right_stepper.id},0')
 
-        # process results, obtaining skipped steps if any.
+        # process results, obtaining skipped drives/steps if any.
         stepper_id_skipped_steps = sorted([
-            tuple(int(s) for s in get_result().split(','))
+            (stepper_id, skipped_drives / 2.0)  # each half step uses two drives
             for get_result in get_result_functions
+            for stepper_id, skipped_drives in [tuple(int(s) for s in get_result().split(','))]
         ])
         assert len(stepper_id_skipped_steps) == 2
         print(f'Step results:  {stepper_id_skipped_steps}')
@@ -211,8 +208,8 @@ class HGantry:
 
     def get_x_mm_y_mm_from_steps(
             self,
-            left_stepper_steps: int,
-            right_stepper_steps: int
+            left_stepper_steps: float,
+            right_stepper_steps: float
     ) -> Tuple[float, float]:
         """
         Get x and y travel (mm) from left and right stepper steps.
