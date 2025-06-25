@@ -1,7 +1,7 @@
 import serial
 from serial import Serial
 
-from h_gantry.core import HGantry, generate_circle_points
+from h_gantry.core import HGantry
 from raspberry_py.gpio import setup, cleanup
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
@@ -70,7 +70,8 @@ def main():
     )
 
     gantry.start()
-    gantry.calibrate()
+    gantry.calibrate(100.0)
+    gantry.center(100.0)
     # gantry.move_to_point(-50.0, 0.0, 100.0)
     # gantry.move_to_point(50.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)

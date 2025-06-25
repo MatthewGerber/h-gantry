@@ -118,6 +118,10 @@ void write_bool(bool value) {
   SerialUART.write(value);
 }
 
+void write_byte(byte value) {
+  SerialUART.write(value);
+}
+
 void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[0] = src[src_start_idx];
   dest[1] = src[src_start_idx + 1];
@@ -211,14 +215,16 @@ void loop() {
     long left_plus_right = left_stepper_drives_remaining + right_stepper_drives_remaining;
     if (left_plus_right < 0) {
       moving_left = true;
-    } else if (left_plus_right > 0) {
+    }
+    else if (left_plus_right > 0) {
       moving_right = true;
     }
 
     long left_minus_right = left_stepper_drives_remaining - right_stepper_drives_remaining;
     if (left_minus_right < 0) {
       moving_down = true;
-    } else if (left_minus_right > 0) {
+    }
+    else if (left_minus_right > 0) {
       moving_up = true;
     }
   }
@@ -253,7 +259,10 @@ void loop() {
     }
     left_stepper_drive_idx += left_stepper_drive_increment;
     if (left_stepper_drive_idx == left_stepper_drive_target) {
-      SerialUART.println(String(LEFT_STEPPER_ID) + "," + String(left_stepper_limit_skipped_drives));
+      write_byte(LEFT_STEPPER_ID);
+      floatbytes left_stepper_limit_skipped_steps;
+      left_stepper_limit_skipped_steps.number = left_stepper_limit_skipped_drives / STEPPER_DRIVES_PER_STEP;
+      write_float(left_stepper_limit_skipped_steps);
     }
   }
 
@@ -270,7 +279,10 @@ void loop() {
     }
     right_stepper_drive_idx += right_stepper_drive_increment;
     if (right_stepper_drive_idx == right_stepper_drive_target) {
-      SerialUART.println(String(RIGHT_STEPPER_ID) + "," + String(right_stepper_limit_skipped_drives));
+      write_byte(RIGHT_STEPPER_ID);
+      floatbytes right_stepper_limit_skipped_steps;
+      right_stepper_limit_skipped_steps.number = right_stepper_limit_skipped_drives / STEPPER_DRIVES_PER_STEP;
+      write_float(right_stepper_limit_skipped_steps);
     }
   }
 

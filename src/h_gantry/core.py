@@ -22,6 +22,19 @@ class HGantry:
             arduino_serial: LockingSerial,
             timing_pulley_dia_mm: float
     ):
+        """
+        Initialize the gantry.
+
+        :param left_stepper: Left stepper.
+        :param right_stepper: Right stepper.
+        :param left_limit_switch_arduino_pin: Left limit-switch pin on the Arduino.
+        :param right_limit_switch_arduino_pin: Right limit-switch pin on the Arduino.
+        :param bottom_limit_switch_arduino_pin: Bottom limit-switch pin on the Arduino.
+        :param top_limit_switch_arduino_pin: Top limit-switch pin on the Arduino.
+        :param arduino_serial: Arduino serial connection.
+        :param timing_pulley_dia_mm: Diameter of the timing pulley.
+        """
+
         self.left_stepper = left_stepper
         self.right_stepper = right_stepper
         self.left_limit_switch_arduino_pin = left_limit_switch_arduino_pin
@@ -39,31 +52,23 @@ class HGantry:
         assert isinstance(right_driver, StepperMotorDriverArduinoUln2003)
         self.right_driver = right_driver
 
-        self.x = 0
-        self.y = 0
-
         self.timing_pulley_circ_mm = self.timing_pulley_dia_mm * math.pi
         self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
         self.steps_per_mm = self.left_stepper.steps_per_degree / self.timing_pulley_mm_per_degree
 
-        self.left_limit_step = 0
-        self.right_limit_step = 0
-        self.left_right_steps = 0
-        self.left_right_degrees = 0.0
+        self.x = 0
+        self.y = 0
         self.left_right_mm = 0.0
-        self.left_right_mm_per_sec = 0.0
-
-        self.bottom_limit_step = 0
-        self.top_limit_step = 0
-        self.bottom_top_steps = 0
-        self.bottom_top_degrees = 0.0
         self.bottom_top_mm = 0.0
-        self.bottom_top_mm_per_sec = 0.0
         self.calibrated = False
 
     def start(
             self
     ):
+        """
+        Start the gantry.
+        """
+
         # write 3 init commands:  2 steppers and the limit switches
         self.arduino_serial.write_then_read((3).to_bytes(1), 0, False)
         self.left_stepper.start()
@@ -83,49 +88,113 @@ class HGantry:
     def stop(
             self
     ):
+        """
+        Stop the gantry.
+        """
+
         self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()
         self.right_stepper.stop()
 
     def home(
-            self
+            self,
+            mm_per_sec: float
     ):
-        self.move_to_left_limit()
-        self.move_to_bottom_limit()
+        """
+        Home the gantry to the left-bottom corner.
+        :param mm_per_sec: Speed.
+        """
+
+        self.move_to_left_limit(mm_per_sec)
+        self.move_to_bottom_limit(mm_per_sec)
+
+    def center(
+            self,
+            mm_per_sec: float
+    ):
+        """
+        Center the gantry.
+
+        :param mm_per_sec: Speed.
+        """
+
+        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec)
 
     def move_to_left_limit(
-            self
+            self,
+            mm_per_sec: float
     ):
-        self.x = 0
+        """
+        Move to the left limit.
+
+        :param mm_per_sec: speed.
+        """
+
+        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec):
+            pass
 
     def move_to_right_limit(
-            self
+            self,
+            mm_per_sec: float
     ):
-        pass
+        """
+        Move to the right limit.
+
+        :param mm_per_sec: Speed.
+        """
+
+        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec):
+            pass
 
     def move_to_bottom_limit(
-            self
+            self,
+            mm_per_sec: float
     ):
-        self.y = 0
+        """
+        Move to the bottom limit.
+
+        :param mm_per_sec: Speed.
+        """
+
+        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec):
+            pass
 
     def move_to_top_limit(
-            self
+            self,
+            mm_per_sec: float
     ):
-        pass
+        """
+        Move to the top limit.
+
+        :param mm_per_sec: Speed.
+        """
+
+        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec):
+            pass
 
     def calibrate(
-            self
+            self,
+            mm_per_sec: float
     ):
-        # self.move_to_left_limit()
-        # self.left_limit_step = self.left_stepper.state.step
-        # move_start = time()
-        # self.move_to_right_limit()
-        # move_end = time()
-        # self.right_limit_step = self.left_stepper.state.step
-        # self.left_right_steps = abs(self.right_limit_step - self.left_limit_step)
-        # self.left_right_degrees = self.left_right_steps / self.left_stepper.steps_per_degree
-        # self.left_right_mm = self.left_right_degrees * self.timing_pulley_mm_per_degree
-        # self.left_right_mm_per_sec = self.left_right_mm (move_end - move_start)
+        """
+        Calibrate the gantry.
+
+        :param mm_per_sec: Speed.
+        """
+
+        # measure horizontal distance
+        self.move_to_left_limit(mm_per_sec)
+        left_x = self.x
+        self.move_to_right_limit(mm_per_sec)
+        right_x = self.x
+        self.left_right_mm = self.x = right_x - left_x
+
+        # measure vertical distance
+        self.move_to_bottom_limit(mm_per_sec)
+        bottom_y = self.y
+        self.move_to_top_limit(mm_per_sec)
+        top_y = self.y
+        self.bottom_top_mm = self.y = top_y - bottom_y
 
         self.calibrated = True
 
@@ -142,6 +211,9 @@ class HGantry:
         :return: Movement.
         """
 
+        if not self.calibrated:
+            raise ValueError('Must calibrate before calculating a move.')
+
         return x - self.x, y - self.y
 
     def move_to_point(
@@ -149,17 +221,15 @@ class HGantry:
             x: float,
             y: float,
             mm_per_sec: float
-    ):
+    ) -> bool:
         """
         Move to a point.
 
         :param x: X coordinate.
         :param y: Y coordinate.
         :param mm_per_sec: Speed in mm per second.
+        :return: True if move was not limited and False otherwise.
         """
-
-        if not self.calibrated:
-            raise ValueError('Must calibrate before moving.')
 
         # calculate x and y steps to move
         move_x_mm, move_y_mm = self.get_move_to(x, y)
@@ -183,27 +253,30 @@ class HGantry:
         if left_stepper_has_steps:
             get_result_functions.append(self.left_stepper.step(left_stepper_steps, time_to_step))
         else:
-            get_result_functions.append(lambda: f'{self.left_stepper.id},0')
+            get_result_functions.append(lambda: (self.left_stepper.id, 0.0))
         if right_stepper_has_steps:
             get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
         else:
-            get_result_functions.append(lambda: f'{self.right_stepper.id},0')
+            get_result_functions.append(lambda: (self.right_stepper.id, 0.0))
 
-        # process results, obtaining skipped drives/steps if any.
-        stepper_id_skipped_steps = sorted([
-            (stepper_id, skipped_drives / 2.0)  # each half step uses two drives
-            for get_result in get_result_functions
-            for stepper_id, skipped_drives in [tuple(int(s) for s in get_result().split(','))]
-        ])
-        assert len(stepper_id_skipped_steps) == 2
+        # process results, obtaining skipped steps for each stepper. calculate skipped distances from skipped steps.
+        left_stepper_skipped_steps, right_stepper_skipped_steps = [
+            skipped_steps
+            for _, skipped_steps in sorted([  # tuples have stepper id in first tuple element
+                get_result()
+                for get_result in get_result_functions
+            ])
+        ]
+        skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
+            left_stepper_skipped_steps,
+            right_stepper_skipped_steps
+        )
 
         # advance x, y positions, minus any skipped movement due to limit switches.
-        skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
-            stepper_id_skipped_steps[0][1],
-            stepper_id_skipped_steps[1][1]
-        )
         self.x += move_x_mm - skipped_x_mm
         self.y += move_y_mm - skipped_y_mm
+
+        return skipped_x_mm == skipped_y_mm == 0.0
 
     def get_x_mm_y_mm_from_steps(
             self,
