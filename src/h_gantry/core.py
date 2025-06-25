@@ -130,7 +130,7 @@ class HGantry:
         :param mm_per_sec: speed.
         """
 
-        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x - 10.0, self.y, mm_per_sec):
             pass
 
     def move_to_right_limit(
@@ -143,7 +143,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x + 10.0, self.y, mm_per_sec):
             pass
 
     def move_to_bottom_limit(
@@ -156,7 +156,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y - 10.0, mm_per_sec):
             pass
 
     def move_to_top_limit(
@@ -169,7 +169,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y + 10.0, mm_per_sec):
             pass
 
     def calibrate(
@@ -210,9 +210,6 @@ class HGantry:
         :param y: Point's y position.
         :return: Movement.
         """
-
-        if not self.calibrated:
-            raise ValueError('Must calibrate before calculating a move.')
 
         return x - self.x, y - self.y
 

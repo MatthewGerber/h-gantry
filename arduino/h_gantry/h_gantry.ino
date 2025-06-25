@@ -78,6 +78,7 @@ const byte CMD_STOP = 3;
 #define SerialUART _UART1_
 
 void setup() {
+  // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 }
 
@@ -206,8 +207,8 @@ void loop() {
    */ 
   bool moving_left = false;
   bool moving_right = false;
-  bool moving_up = false;
   bool moving_down = false;
+  bool moving_up = false;
   if (left_stepper_inited && right_stepper_inited) {
     long left_stepper_drives_remaining = left_stepper_drive_target - left_stepper_drive_idx;
     long right_stepper_drives_remaining = right_stepper_drive_target - right_stepper_drive_idx;
@@ -232,10 +233,10 @@ void loop() {
   // check whether the gantry has hit a limit and must stop. this is indicated by pressing a limit switch in the direction of travel.
   bool limited_travel = false;
   if (limit_switches_inited) {
-    bool left_limit_switch_pressed = false; // !digitalRead(left_limit_switch_pin);
-    bool right_limit_switch_pressed = false; // !digitalRead(right_limit_switch_pin);
+    bool left_limit_switch_pressed = !digitalRead(left_limit_switch_pin);
+    bool right_limit_switch_pressed = !digitalRead(right_limit_switch_pin);
     bool bottom_limit_switch_pressed = !digitalRead(bottom_limit_switch_pin);
-    bool top_limit_switch_pressed = false; // !digitalRead(top_limit_switch_pin);
+    bool top_limit_switch_pressed = !digitalRead(top_limit_switch_pin);
     if (
       (moving_left && left_limit_switch_pressed) || 
       (moving_right && right_limit_switch_pressed) ||
@@ -261,8 +262,9 @@ void loop() {
     if (left_stepper_drive_idx == left_stepper_drive_target) {
       write_byte(LEFT_STEPPER_ID);
       floatbytes left_stepper_limit_skipped_steps;
-      left_stepper_limit_skipped_steps.number = left_stepper_limit_skipped_drives / STEPPER_DRIVES_PER_STEP;
+      left_stepper_limit_skipped_steps.number = left_stepper_limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
       write_float(left_stepper_limit_skipped_steps);
+      SerialUART.flush();
     }
   }
 
@@ -281,8 +283,9 @@ void loop() {
     if (right_stepper_drive_idx == right_stepper_drive_target) {
       write_byte(RIGHT_STEPPER_ID);
       floatbytes right_stepper_limit_skipped_steps;
-      right_stepper_limit_skipped_steps.number = right_stepper_limit_skipped_drives / STEPPER_DRIVES_PER_STEP;
+      right_stepper_limit_skipped_steps.number = right_stepper_limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
       write_float(right_stepper_limit_skipped_steps);
+      SerialUART.flush();
     }
   }
 
