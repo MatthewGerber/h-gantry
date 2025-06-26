@@ -1,4 +1,7 @@
+import json
+import logging
 import math
+import os.path
 from datetime import timedelta
 from typing import Tuple, List
 
@@ -20,7 +23,8 @@ class HGantry:
             bottom_limit_switch_arduino_pin: int,
             top_limit_switch_arduino_pin: int,
             arduino_serial: LockingSerial,
-            timing_pulley_dia_mm: float
+            timing_pulley_dia_mm: float,
+            state_path: str
     ):
         """
         Initialize the gantry.
@@ -33,6 +37,7 @@ class HGantry:
         :param top_limit_switch_arduino_pin: Top limit-switch pin on the Arduino.
         :param arduino_serial: Arduino serial connection.
         :param timing_pulley_dia_mm: Diameter of the timing pulley.
+        :param state_path: Path to file in which to store state.
         """
 
         self.left_stepper = left_stepper
@@ -43,6 +48,7 @@ class HGantry:
         self.top_limit_switch_arduino_pin = top_limit_switch_arduino_pin
         self.arduino_serial = arduino_serial
         self.timing_pulley_dia_mm = timing_pulley_dia_mm
+        self.state_path = state_path
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
@@ -56,11 +62,20 @@ class HGantry:
         self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
         self.steps_per_mm = self.left_stepper.steps_per_degree / self.timing_pulley_mm_per_degree
 
-        self.x = 0
-        self.y = 0
-        self.left_right_mm = 0.0
-        self.bottom_top_mm = 0.0
-        self.calibrated = False
+        if os.path.exists(self.state_path):
+            logging.info(f'Loading state from file:  {self.state_path}')
+            with open(self.state_path, 'r') as f:
+                state = json.loads(f.read())
+            self.x = state['x']
+            self.y = state['y']
+            self.left_right_mm = state['left_right_mm']
+            self.bottom_top_mm = state['bottom_top_mm']
+        else:
+            logging.info(f'No state file exists:  {self.state_path}')
+            self.x = 0
+            self.y = 0
+            self.left_right_mm = 0.0
+            self.bottom_top_mm = 0.0
 
     def start(
             self
@@ -95,6 +110,14 @@ class HGantry:
         self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()
         self.right_stepper.stop()
+        logging.info(f'Saving state to file:  {self.state_path}')
+        with open(self.state_path, 'w') as f:
+            f.write(json.dumps({
+                'x': self.x,
+                'y': self.y,
+                'left_right_mm': self.left_right_mm,
+                'bottom_top_mm': self.bottom_top_mm
+            }))
 
     def home(
             self,
@@ -195,8 +218,6 @@ class HGantry:
         self.move_to_top_limit(mm_per_sec)
         top_y = self.y
         self.bottom_top_mm = self.y = top_y - bottom_y
-
-        self.calibrated = True
 
     def get_move_to(
             self,

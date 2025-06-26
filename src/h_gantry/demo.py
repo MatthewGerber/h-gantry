@@ -1,7 +1,10 @@
+import logging
+import os.path
+
 import serial
 from serial import Serial
 
-from h_gantry.core import HGantry
+from h_gantry.core import HGantry, generate_circle_points
 from raspberry_py.gpio import setup, cleanup
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
@@ -11,6 +14,8 @@ def main():
     """
     Gantry demonstration.
     """
+
+    logging.basicConfig(level=logging.INFO)
 
     setup()
 
@@ -50,7 +55,7 @@ def main():
             driver_pin_1=9,
             driver_pin_2=10,
             driver_pin_3=11,
-            driver_pin_4=12,
+            driver_pin_4=13,
             identifier=1,
             serial=locking_serial,
             asynchronous=True
@@ -64,25 +69,24 @@ def main():
         left_limit_switch_arduino_pin=3,
         right_limit_switch_arduino_pin=4,
         bottom_limit_switch_arduino_pin=2,
-        top_limit_switch_arduino_pin=13,
+        top_limit_switch_arduino_pin=12,
         arduino_serial=locking_serial,
-        timing_pulley_dia_mm=12.27
+        timing_pulley_dia_mm=12.27,
+        state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
     )
 
     gantry.start()
     # gantry.move_to_top_limit(100.0)
-    gantry.calibrate(100.0)
-    gantry.center(100.0)
-    print(f'Left to right:  {gantry.left_right_mm} mm')
-    print(f'Bottom to top:  {gantry.bottom_top_mm} mm')
+    # gantry.calibrate(100.0)
+    # gantry.center(100.0)
     # gantry.move_to_point(-50.0, 0.0, 100.0)
     # gantry.move_to_point(50.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 50.0, 100.0)
     # gantry.move_to_point(0.0, -50.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)
-    # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
-    # gantry.move_to_points(circle_points, 100.0, True)
+    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
+    gantry.move_to_points(circle_points, 100.0, True)
 
     gantry.stop()
 
