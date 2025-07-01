@@ -76,17 +76,16 @@ def main():
     )
 
     gantry.start()
-    # gantry.move_to_top_limit(100.0)
-    # gantry.calibrate(100.0)
-    # gantry.center(100.0)
+    gantry.calibrate(100.0)
+    gantry.center(100.0)
     # gantry.move_to_point(-50.0, 0.0, 100.0)
     # gantry.move_to_point(50.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 50.0, 100.0)
     # gantry.move_to_point(0.0, -50.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)
-    circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
-    gantry.move_to_points(circle_points, 100.0, True)
+    # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
+    # gantry.move_to_points(circle_points, 100.0, True)
 
     gantry.stop()
 

@@ -130,37 +130,6 @@ void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[3] = src[src_start_idx + 3];
 }
 
-void test_step() {
-
-  if (!left_stepper_inited) {
-    left_driver_pin_1 = 5;
-    pinMode(left_driver_pin_1, OUTPUT);
-    left_driver_pin_2 = 6;
-    pinMode(left_driver_pin_2, OUTPUT);
-    left_driver_pin_3 = 7;
-    pinMode(left_driver_pin_3, OUTPUT);
-    left_driver_pin_4 = 8;
-    pinMode(left_driver_pin_4, OUTPUT);
-    left_stepper_drive_idx = 0;
-    left_stepper_drive_target = left_stepper_drive_idx;
-    left_stepper_drive_increment = 0;
-    left_stepper_inited = true;
-
-    unsigned int left_stepper_num_steps = 1000;
-    unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
-    left_stepper_drive_target = left_stepper_drive_idx + left_stepper_num_drives;
-    left_stepper_drive_increment = 1;
-
-    // set microseconds per drive
-    unsigned int left_stepper_ms_to_step = 2000;
-    left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
-    if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-      left_stepper_us_per_drive = MIN_US_PER_DRIVE;
-    }
-    left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
-  }
-}
-
 byte mod(long x, byte y){
   return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
@@ -200,9 +169,32 @@ void stop_right_stepper() {
 void loop() {
 
   /* check whether the cart is moving left, right, up, and down. this calculation is based on the 
-   * following equations.
+   * following equations:
    * 
-   * ...
+   * calculate x and y steps from mm and steps/mm:
+   * ---------------------------------------------
+   * x_steps = move_x_mm * steps_per_mm
+   * y_steps = move_y_mm * steps_per_mm
+   * 
+   * convert x and y steps to stepper motor steps:
+   * ---------------------------------------------
+   * left_stepper_steps (lss) = x_steps + y_steps
+   * right_stepper_steps (rss) = x_steps - y_steps
+   * 
+   * obtain x and y steps in terms of lss and rss:
+   * ---------------------------------------------
+   * x_steps = lss - y_steps
+   * x_steps = rss + y_steps
+   * y_steps = lss - x_steps
+   * y_steps = x_steps - rss
+   * 
+   * x_steps = lss - x_steps + rss
+   * 2 * x_steps = lss + rss
+   * x_steps = (lss + rss) / 2
+   * 
+   * y_steps = lss - rss - y_steps
+   * 2 * y_steps = lss - rss
+   * y_steps = (lss - rss) / 2
    * 
    */ 
   bool moving_left = false;

@@ -251,12 +251,12 @@ class HGantry:
 
         # calculate x and y steps to move
         move_x_mm, move_y_mm = self.get_move_to(x, y)
-        x_steps = int(move_x_mm * self.steps_per_mm)
-        y_steps = int(move_y_mm * self.steps_per_mm)
+        x_steps = move_x_mm * self.steps_per_mm
+        y_steps = move_y_mm * self.steps_per_mm
 
         # assign steps to the motors
-        left_stepper_steps = x_steps + y_steps
-        right_stepper_steps = x_steps - y_steps
+        left_stepper_steps = int(x_steps + y_steps)
+        right_stepper_steps = int(x_steps - y_steps)
 
         # calculate time to step
         distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
