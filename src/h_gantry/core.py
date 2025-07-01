@@ -58,7 +58,8 @@ class HGantry:
         assert isinstance(right_driver, StepperMotorDriverArduinoUln2003)
         self.right_driver = right_driver
 
-        self.timing_pulley_circ_mm = self.timing_pulley_dia_mm * math.pi
+        # calculate timing pulley circumference and steps/mm based on pulley diameter
+        self.timing_pulley_circ_mm = math.pi * self.timing_pulley_dia_mm
         self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
         self.steps_per_mm = self.left_stepper.steps_per_degree / self.timing_pulley_mm_per_degree
 
@@ -72,8 +73,8 @@ class HGantry:
             self.bottom_top_mm = state['bottom_top_mm']
         else:
             logging.info(f'No state file exists:  {self.state_path}')
-            self.x = 0
-            self.y = 0
+            self.x = 0.0
+            self.y = 0.0
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
@@ -98,7 +99,8 @@ class HGantry:
             1,
             False
         ))
-        assert limit_switches_inited
+        if not limit_switches_inited:
+            raise ValueError('Failed to initialize Arduino limit switches.')
 
     def stop(
             self
@@ -119,12 +121,13 @@ class HGantry:
                 'bottom_top_mm': self.bottom_top_mm
             }))
 
-    def home(
+    def move_to_home_limit(
             self,
             mm_per_sec: float
     ):
         """
         Home the gantry to the left-bottom corner.
+
         :param mm_per_sec: Speed.
         """
 
@@ -153,7 +156,7 @@ class HGantry:
         :param mm_per_sec: speed.
         """
 
-        while self.move_to_point(self.x - 10.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec):
             pass
 
     def move_to_right_limit(
@@ -166,7 +169,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x + 10.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec):
             pass
 
     def move_to_bottom_limit(
@@ -179,7 +182,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y - 10.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec):
             pass
 
     def move_to_top_limit(
@@ -192,7 +195,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y + 10.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec):
             pass
 
     def calibrate(
@@ -200,19 +203,19 @@ class HGantry:
             mm_per_sec: float
     ):
         """
-        Calibrate the gantry.
+        Calibrate the gantry by measuring unknown dimensions.
 
         :param mm_per_sec: Speed.
         """
 
-        # measure horizontal distance
+        # measure distance between horizontal limits
         self.move_to_left_limit(mm_per_sec)
         left_x = self.x
         self.move_to_right_limit(mm_per_sec)
         right_x = self.x
         self.left_right_mm = self.x = right_x - left_x
 
-        # measure vertical distance
+        # measure distance between vertical limits
         self.move_to_bottom_limit(mm_per_sec)
         bottom_y = self.y
         self.move_to_top_limit(mm_per_sec)
@@ -243,18 +246,30 @@ class HGantry:
         """
         Move to a point.
 
-        :param x: X coordinate.
-        :param y: Y coordinate.
+        :param x: X coordinate to move to.
+        :param y: Y coordinate to move to.
         :param mm_per_sec: Speed in mm per second.
-        :return: True if move was not limited and False otherwise.
+        :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
+        achieved.
         """
 
-        # calculate x and y steps to move
+        # calculate x steps (left/right) and y steps (down/up) to move
         move_x_mm, move_y_mm = self.get_move_to(x, y)
         x_steps = move_x_mm * self.steps_per_mm
         y_steps = move_y_mm * self.steps_per_mm
 
-        # assign steps to the motors
+        # assign steps to the left/right motors. consider the following:
+        #
+        # move left (x_steps < 0):  each stepper takes x_steps
+        # move right (x_steps > 0):  each stepper takes x_steps
+        # move down (y_steps < 0):  left stepper takes y_steps; right stepper takes -y_steps
+        # move up (y_steps > 0):  left stepper takes y_steps; right stepper takes -y_steps
+        #
+        # the combined x and y movement is achieved by adding x movement to y movement:
+        #
+        # left stepper steps:  x_steps + y_steps
+        # right stepper steps:  x_steps - y_steps
+        #
         left_stepper_steps = int(x_steps + y_steps)
         right_stepper_steps = int(x_steps - y_steps)
 

@@ -171,52 +171,77 @@ void loop() {
   /* check whether the cart is moving left, right, up, and down. this calculation is based on the 
    * following equations:
    * 
-   * calculate x and y steps from mm and steps/mm:
-   * ---------------------------------------------
+   * 1) calculate x and y steps from mm travels and steps/mm:
+   * --------------------------------------------------------
    * x_steps = move_x_mm * steps_per_mm
    * y_steps = move_y_mm * steps_per_mm
    * 
-   * convert x and y steps to stepper motor steps:
-   * ---------------------------------------------
+   * 2) using (1), translate x and y steps to stepper motor steps:
+   * -------------------------------------------------------------
    * left_stepper_steps (lss) = x_steps + y_steps
    * right_stepper_steps (rss) = x_steps - y_steps
    * 
-   * obtain x and y steps in terms of lss and rss:
-   * ---------------------------------------------
-   * x_steps = lss - y_steps
-   * x_steps = rss + y_steps
-   * y_steps = lss - x_steps
-   * y_steps = x_steps - rss
+   * 3) using (2), obtain x and y steps in terms of lss and rss:
+   * -----------------------------------------------------------
+   * a) x_steps = lss - y_steps
+   * b) x_steps = rss + y_steps
+   * c) y_steps = lss - x_steps
+   * d) y_steps = x_steps - rss
    * 
+   * 4) use (3a) and (3d) for x_steps:
+   * ---------------------------------
    * x_steps = lss - x_steps + rss
    * 2 * x_steps = lss + rss
    * x_steps = (lss + rss) / 2
    * 
+   * a) the gantry will move left when x_steps = (lss + rss) / 2 < 0, or when lss + rss < 0.
+   * b) the gantry will move right when lss + rss > 0.
+   * c) the gantry will remain at its x position when lss + rss = 0. in this case, either
+   * lss and rss are both 0 (steppers do not move), or lss = -rss, in which case the
+   * steppers move equally in opposite directions, which is up/down movement.
+   * 
+   * 5) use (3c) and (3b) for y_steps:
+   * ---------------------------------
    * y_steps = lss - rss - y_steps
    * 2 * y_steps = lss - rss
    * y_steps = (lss - rss) / 2
    * 
+   * a) the gantry will move down when y_steps = (lss - rss) / 2 < 0, or when lss - rss < 0.
+   * b) the gantry will move up when lss - rss > 0.
+   * c) the gantry will remain at its y position when lss - rss = 0. in this case, either
+   * lss and rss are both 0 (steppers do not move), or lss = rss, in which case the
+   * steppers move equally in the same direction, which is left/right movement.
+   *
+   * 6) note that we take half steps, which means we drive a motor twice per step. for
+   * the purpose of checking left/right and down/up movement, it is equivalent to check
+   * the number of left and right drives that remain.
    */ 
   bool moving_left = false;
   bool moving_right = false;
   bool moving_down = false;
   bool moving_up = false;
   if (left_stepper_inited && right_stepper_inited) {
+
+    // calculate left and right drives remaining
     long left_stepper_drives_remaining = left_stepper_drive_target - left_stepper_drive_idx;
     long right_stepper_drives_remaining = right_stepper_drive_target - right_stepper_drive_idx;
 
+    // check condition (4a) for movement left
     long left_plus_right = left_stepper_drives_remaining + right_stepper_drives_remaining;
     if (left_plus_right < 0) {
       moving_left = true;
     }
+    // check condition (4b) for movement right
     else if (left_plus_right > 0) {
       moving_right = true;
     }
 
+    // check condition (5a) for movement down
     long left_minus_right = left_stepper_drives_remaining - right_stepper_drives_remaining;
     if (left_minus_right < 0) {
       moving_down = true;
     }
+    // check condition (5b) for movement up
     else if (left_minus_right > 0) {
       moving_up = true;
     }
@@ -244,13 +269,13 @@ void loop() {
    * caller when the drive index reaches the target.
    */
   if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
+    left_stepper_drive_idx += left_stepper_drive_increment;
     if (limited_travel) {
       left_stepper_limit_skipped_drives += left_stepper_drive_increment;
     }
     else {
       drive_left_stepper();
     }
-    left_stepper_drive_idx += left_stepper_drive_increment;
     if (left_stepper_drive_idx == left_stepper_drive_target) {
       write_byte(LEFT_STEPPER_ID);
       floatbytes left_stepper_limit_skipped_steps;
@@ -265,13 +290,13 @@ void loop() {
    * caller when the drive index reaches the target.
    */
   if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
+    right_stepper_drive_idx += right_stepper_drive_increment;
     if (limited_travel) {
       right_stepper_limit_skipped_drives += right_stepper_drive_increment;
     }
     else {
       drive_right_stepper();
     }
-    right_stepper_drive_idx += right_stepper_drive_increment;
     if (right_stepper_drive_idx == right_stepper_drive_target) {
       write_byte(RIGHT_STEPPER_ID);
       floatbytes right_stepper_limit_skipped_steps;
@@ -284,7 +309,10 @@ void loop() {
   // process a commands sent over the serial connection
   if (SerialUART.available()) {
 
-    // read number of commands to process
+    // read number of commands to process. we process multiple commands per loop because the steppers and their
+    // drive indices need to remain synchronized when evaluating left/right and down/up movement above. reading
+    // a single step command per loop results in one stepper advancing before the other, throwing off equality 
+    // checks.
     byte num_commands_bytes[NUM_COMMANDS_BYTES_LEN];
     SerialUART.readBytes(num_commands_bytes, NUM_COMMANDS_BYTES_LEN);
     byte num_commands = num_commands_bytes[0];
@@ -355,23 +383,23 @@ void loop() {
         }
       }
       else if (command == CMD_STEP) {
-        if (component_id == LEFT_STEPPER_ID) {
+        if (component_id == LEFT_STEPPER_ID && left_stepper_inited) {
           
           byte args[CMD_STEP_ARGS_LEN];
           SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
-          // calculate numbers of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
+          // calculate number of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
           unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
           unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
           left_stepper_drive_increment = args[2];
           if (left_stepper_drive_increment == 0) {
             left_stepper_drive_increment = -1;
           }
-          left_stepper_drive_idx = mod(left_stepper_drive_idx + left_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-          left_stepper_drive_target = left_stepper_drive_idx + ((left_stepper_num_drives - 1) * left_stepper_drive_increment);
+          left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+          left_stepper_drive_target = left_stepper_drive_idx + (left_stepper_num_drives * left_stepper_drive_increment);
           left_stepper_limit_skipped_drives = 0;
 
-          // set microseconds per drive based on ms per drive
+          // set microseconds per drive based on total ms to step. impose maximum drive rate.
           unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
           left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
           if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
@@ -379,23 +407,23 @@ void loop() {
           }
           left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
         }
-        else if (component_id == RIGHT_STEPPER_ID) {
+        else if (component_id == RIGHT_STEPPER_ID && right_stepper_inited) {
 
           byte args[CMD_STEP_ARGS_LEN];
           SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
-          // calculate numbers of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
+          // calculate number of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
           unsigned int right_stepper_num_steps = bytes_to_unsigned_int(args, 0);
           unsigned int right_stepper_num_drives = right_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
           right_stepper_drive_increment = args[2];
           if (right_stepper_drive_increment == 0) {
             right_stepper_drive_increment = -1;
           }
-          right_stepper_drive_idx = mod(right_stepper_drive_idx + right_stepper_drive_increment, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-          right_stepper_drive_target = right_stepper_drive_idx + ((right_stepper_num_drives - 1) * right_stepper_drive_increment);
+          right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+          right_stepper_drive_target = right_stepper_drive_idx + (right_stepper_num_drives * right_stepper_drive_increment);
           right_stepper_limit_skipped_drives = 0;
 
-          // set microseconds per drive based on ms per drive
+          // set microseconds per drive based on total ms to step. impose maximum drive rate.
           unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
           right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(right_stepper_num_drives)) * 1000.0);
           if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
