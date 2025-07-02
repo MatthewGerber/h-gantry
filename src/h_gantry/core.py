@@ -53,10 +53,12 @@ class HGantry:
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
         self.left_driver = left_driver
+        assert self.left_driver.asynchronous
 
         right_driver = self.right_stepper.driver
         assert isinstance(right_driver, StepperMotorDriverArduinoUln2003)
         self.right_driver = right_driver
+        assert self.right_driver.asynchronous
 
         # calculate timing pulley circumference and steps/mm based on pulley diameter
         self.timing_pulley_circ_mm = math.pi * self.timing_pulley_dia_mm
@@ -273,11 +275,12 @@ class HGantry:
         left_stepper_steps = int(x_steps + y_steps)
         right_stepper_steps = int(x_steps - y_steps)
 
-        # calculate time to step
+        # calculate time to step directly to the new point
         distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-        # step motors
+        # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
+        # the stepper identifier and the number of skipped steps due to limiting.
         left_stepper_has_steps = left_stepper_steps != 0
         right_stepper_has_steps = right_stepper_steps != 0
         num_commands = left_stepper_has_steps + right_stepper_has_steps
@@ -323,6 +326,17 @@ class HGantry:
         :param right_stepper_steps: Right stepper steps.
         :return: 2-tuple of x and y travel (mm).
         """
+
+        # see the analysis here:  https://github.com/MatthewGerber/h-gantry/blob/main/arduino/h_gantry/h_gantry.ino
+        # the relevant equations are:
+        #
+        # x_steps = (lss + rss) / 2
+        # y_steps = (lss - rss) / 2
+        #
+        # thus:
+        #
+        # x_mm = x_steps / steps_per_mm
+        # y_mm = y_steps / steps_per_mm
 
         return (
             (left_stepper_steps + right_stepper_steps) / (2.0 * self.steps_per_mm),
