@@ -37,7 +37,7 @@ class HGantry:
         :param top_limit_switch_arduino_pin: Top limit-switch pin on the Arduino.
         :param arduino_serial: Arduino serial connection.
         :param timing_pulley_dia_mm: Diameter of the timing pulley.
-        :param state_path: Path to file in which to store state.
+        :param state_path: Path to file to read/write state information.
         """
 
         self.left_stepper = left_stepper
@@ -69,10 +69,8 @@ class HGantry:
             logging.info(f'Loading state from file:  {self.state_path}')
             with open(self.state_path, 'r') as f:
                 state = json.loads(f.read())
-            self.x = state['x']
-            self.y = state['y']
-            self.left_right_mm = state['left_right_mm']
-            self.bottom_top_mm = state['bottom_top_mm']
+            for attribute, value in state.items():
+                setattr(self, attribute, value)
         else:
             logging.info(f'No state file exists:  {self.state_path}')
             self.x = 0.0
@@ -105,23 +103,30 @@ class HGantry:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
     def stop(
-            self
+            self,
+            save_state: bool
     ):
         """
         Stop the gantry.
+
+        :param save_state: Whether to save the gantry's state after stopping.
         """
 
         self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()
         self.right_stepper.stop()
-        logging.info(f'Saving state to file:  {self.state_path}')
-        with open(self.state_path, 'w') as f:
-            f.write(json.dumps({
-                'x': self.x,
-                'y': self.y,
-                'left_right_mm': self.left_right_mm,
-                'bottom_top_mm': self.bottom_top_mm
-            }))
+
+        if save_state:
+            logging.info(f'Saving state to file:  {self.state_path}')
+            with open(self.state_path, 'w') as f:
+                f.write(json.dumps({
+                    'x': self.x,
+                    'y': self.y,
+                    'left_right_mm': self.left_right_mm,
+                    'bottom_top_mm': self.bottom_top_mm
+                }))
+        else:
+            logging.warning('Not saving gantry state.')
 
     def move_to_home_limit(
             self,
@@ -205,7 +210,7 @@ class HGantry:
             mm_per_sec: float
     ):
         """
-        Calibrate the gantry by measuring unknown dimensions.
+        Calibrate the gantry by measuring unknown positions and dimensions.
 
         :param mm_per_sec: Speed.
         """
@@ -328,6 +333,7 @@ class HGantry:
         """
 
         # see the analysis here:  https://github.com/MatthewGerber/h-gantry/blob/main/arduino/h_gantry/h_gantry.ino
+        #
         # the relevant equations are:
         #
         # x_steps = (lss + rss) / 2
