@@ -4,8 +4,8 @@ import os.path
 import serial
 from serial import Serial
 
-from h_gantry.core import HGantry, generate_circle_points
-from raspberry_py.gpio import setup, cleanup
+from h_gantry.core import HGantry
+from raspberry_py.gpio import setup, cleanup, CkPin
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
@@ -64,6 +64,7 @@ def main():
     )
 
     gantry = HGantry(
+        joystick_z_pin=CkPin.GPIO18,
         left_stepper=left_stepper,
         right_stepper=right_stepper,
         left_limit_switch_arduino_pin=3,

@@ -5,7 +5,12 @@ import os.path
 from datetime import timedelta
 from typing import Tuple, List
 
+from smbus2 import SMBus
+
+from raspberry_py.gpio import CkPin
+from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
+from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
 
@@ -16,6 +21,7 @@ class HGantry:
 
     def __init__(
             self,
+            joystick_z_pin: CkPin,
             left_stepper: Stepper,
             right_stepper: Stepper,
             left_limit_switch_arduino_pin: int,
@@ -29,6 +35,7 @@ class HGantry:
         """
         Initialize the gantry.
 
+        :param joystick_z_pin: Joystick z pin.
         :param left_stepper: Left stepper.
         :param right_stepper: Right stepper.
         :param left_limit_switch_arduino_pin: Left limit-switch pin on the Arduino.
@@ -40,6 +47,7 @@ class HGantry:
         :param state_path: Path to file to read/write state information.
         """
 
+        self.joystick_z_pin = joystick_z_pin
         self.left_stepper = left_stepper
         self.right_stepper = right_stepper
         self.left_limit_switch_arduino_pin = left_limit_switch_arduino_pin
@@ -78,6 +86,34 @@ class HGantry:
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
+        # create an a/d converter for the joystick and rescale the digital outputs to be in [-1, 1].
+        joystick_y_ad_channel = 0
+        joystick_x_ad_channel = 1
+        self.adc = ADS7830(
+            input_voltage=3.3,
+            bus=SMBus('/dev/i2c-1'),
+            address=ADS7830.ADDRESS,
+            command=ADS7830.COMMAND,
+            channel_rescaled_range={
+                joystick_y_ad_channel: (-5.0, 5.0),
+                joystick_x_ad_channel: (-5.0, 5.0)
+            }
+        )
+
+        # create a joystick. invert the y-axis values so that pushing forward increases them.
+        self.joystick = Joystick(
+            adc=self.adc,
+            x_channel=joystick_x_ad_channel,
+            y_channel=joystick_y_ad_channel,
+            z_pin=self.joystick_z_pin,
+            invert_y=True
+        )
+        self.joystick.event(lambda s:  self.move_to_offset(  # type: ignore
+            s.x,
+            s.y,
+            math.sqrt(s.x ** 2 + s.y ** 2)
+        ))
+
     def start(
             self
     ):
@@ -102,6 +138,8 @@ class HGantry:
         if not limit_switches_inited:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
+        self.joystick.start_updating_state(0.5)
+
     def stop(
             self,
             save_state: bool
@@ -111,6 +149,9 @@ class HGantry:
 
         :param save_state: Whether to save the gantry's state after stopping.
         """
+
+        self.joystick.stop_updating_state()
+        self.adc.close()
 
         self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()
@@ -369,6 +410,24 @@ class HGantry:
 
         for x, y in points:
             self.move_to_point(x, y, mm_per_sec)
+
+    def move_to_offset(
+            self,
+            x_offset_mm: float,
+            y_offset_mm: float,
+            mm_per_sec: float
+    ) -> bool:
+        """
+        Move to an offset from the current position.
+
+        :param x_offset_mm: X offset.
+        :param y_offset_mm: Y offset.
+        :param mm_per_sec: Speed in mm per second.
+        :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
+        achieved.
+        """
+
+        return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec)
 
 
 def generate_circle_points(
