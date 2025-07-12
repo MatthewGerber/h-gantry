@@ -108,11 +108,27 @@ class HGantry:
             z_pin=self.joystick_z_pin,
             invert_y=True
         )
-        self.joystick.event(lambda s:  self.move_to_offset(  # type: ignore
-            s.x,
-            s.y,
-            math.sqrt(s.x ** 2 + s.y ** 2)
+        self.joystick.event(lambda s: (
+            self.center(HGantry.get_speed_from_joystick_state(s)) if s.z
+            else self.move_to_offset(
+                s.x,
+                s.y,
+                math.sqrt(s.x ** 2 + s.y ** 2)
+            )
         ))
+
+    @staticmethod
+    def get_speed_from_joystick_state(
+            joystick_state: Joystick.State
+    ) -> float:
+        """
+        Get speed from a joystick state.
+
+        :param joystick_state: State.
+        :return: Speed.
+        """
+
+        return math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
 
     def start(
             self
