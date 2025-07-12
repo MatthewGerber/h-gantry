@@ -113,7 +113,7 @@ class HGantry:
             else self.move_to_offset(
                 s.x,
                 s.y,
-                math.sqrt(s.x ** 2 + s.y ** 2)
+                HGantry.get_speed_from_joystick_state(s)
             )
         ))
 
