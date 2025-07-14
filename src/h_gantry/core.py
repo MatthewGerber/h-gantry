@@ -100,7 +100,8 @@ class HGantry:
             }
         )
 
-        # create a joystick. invert the y-axis values so that pushing forward increases them.
+        # create a joystick. invert the y-axis values so that pushing forward increases them. center the gantry on
+        # joystick press and move otherwise.
         self.joystick = Joystick(
             adc=self.adc,
             x_channel=joystick_x_ad_channel,
@@ -208,7 +209,10 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec)
+        if self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec):
+            pass
+        else:
+            raise ValueError('Centering should never hit a limit switch.')
 
     def move_to_left_limit(
             self,
