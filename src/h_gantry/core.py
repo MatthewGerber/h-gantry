@@ -73,6 +73,9 @@ class HGantry:
         self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
         self.steps_per_mm = self.left_stepper.steps_per_degree / self.timing_pulley_mm_per_degree
 
+        self.cart_width_mm = 50.0
+        self.cart_depth_mm = 50.0
+
         if os.path.exists(self.state_path):
             logging.info(f'Loading state from file:  {self.state_path}')
             with open(self.state_path, 'r') as f:
@@ -87,36 +90,36 @@ class HGantry:
             self.bottom_top_mm = 0.0
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in [-1, 1].
-        joystick_y_ad_channel = 0
-        joystick_x_ad_channel = 1
-        self.adc = ADS7830(
-            input_voltage=3.3,
-            bus=SMBus('/dev/i2c-1'),
-            address=ADS7830.ADDRESS,
-            command=ADS7830.COMMAND,
-            channel_rescaled_range={
-                joystick_y_ad_channel: (-5.0, 5.0),
-                joystick_x_ad_channel: (-5.0, 5.0)
-            }
-        )
-
-        # create a joystick. invert the y-axis values so that pushing forward increases them. center the gantry on
-        # joystick press and move otherwise.
-        self.joystick = Joystick(
-            adc=self.adc,
-            x_channel=joystick_x_ad_channel,
-            y_channel=joystick_y_ad_channel,
-            z_pin=self.joystick_z_pin,
-            invert_y=True
-        )
-        self.joystick.event(lambda s: (
-            self.center(HGantry.get_speed_from_joystick_state(s)) if s.z
-            else self.move_to_offset(
-                s.x,
-                s.y,
-                HGantry.get_speed_from_joystick_state(s)
-            )
-        ))
+        # joystick_y_ad_channel = 0
+        # joystick_x_ad_channel = 1
+        # self.adc = ADS7830(
+        #     input_voltage=3.3,
+        #     bus=SMBus('/dev/i2c-1'),
+        #     address=ADS7830.ADDRESS,
+        #     command=ADS7830.COMMAND,
+        #     channel_rescaled_range={
+        #         joystick_y_ad_channel: (-5.0, 5.0),
+        #         joystick_x_ad_channel: (-5.0, 5.0)
+        #     }
+        # )
+        #
+        # # create a joystick. invert the y-axis values so that pushing forward increases them. center the gantry on
+        # # joystick press and move otherwise.
+        # self.joystick = Joystick(
+        #     adc=self.adc,
+        #     x_channel=joystick_x_ad_channel,
+        #     y_channel=joystick_y_ad_channel,
+        #     z_pin=self.joystick_z_pin,
+        #     invert_y=True
+        # )
+        # self.joystick.event(lambda s: (
+        #     self.center(HGantry.get_speed_from_joystick_state(s)) if s.z
+        #     else self.move_to_offset(
+        #         s.x,
+        #         s.y,
+        #         HGantry.get_speed_from_joystick_state(s)
+        #     )
+        # ))
 
     @staticmethod
     def get_speed_from_joystick_state(
@@ -155,7 +158,7 @@ class HGantry:
         if not limit_switches_inited:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
-        self.joystick.start_updating_state(0.5)
+        # self.joystick.start_updating_state(0.5)
 
     def stop(
             self,
@@ -167,8 +170,8 @@ class HGantry:
         :param save_state: Whether to save the gantry's state after stopping.
         """
 
-        self.joystick.stop_updating_state()
-        self.adc.close()
+        # self.joystick.stop_updating_state()
+        # self.adc.close()
 
         self.arduino_serial.write_then_read((2).to_bytes(1), 0, False)
         self.left_stepper.stop()

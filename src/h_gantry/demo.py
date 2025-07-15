@@ -72,14 +72,15 @@ def main():
         bottom_limit_switch_arduino_pin=2,
         top_limit_switch_arduino_pin=12,
         arduino_serial=locking_serial,
-        timing_pulley_dia_mm=12.27,
+        timing_pulley_dia_mm=12.97,
         state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
     )
 
     gantry.start()
     gantry.calibrate(100.0)
     gantry.center(100.0)
-    # gantry.move_to_point(-50.0, 0.0, 100.0)
+    # gantry.move_to_offset(10.0, 0.0, 100.0)
+    # gantry.move_to_point(50.0, 0.0, 100.0)
     # gantry.move_to_point(50.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 0.0, 100.0)
     # gantry.move_to_point(0.0, 50.0, 100.0)
