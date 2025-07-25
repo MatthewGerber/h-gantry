@@ -3,6 +3,7 @@ import logging
 import math
 import os.path
 from datetime import timedelta
+from threading import Lock
 from typing import Tuple, List
 
 from smbus2 import SMBus
@@ -58,6 +59,8 @@ class HGantry:
         self.timing_pulley_dia_mm = timing_pulley_dia_mm
         self.state_path = state_path
 
+        self.move_to_point_lock = Lock()
+
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
         self.left_driver = left_driver
@@ -89,7 +92,7 @@ class HGantry:
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
-        # create an a/d converter for the joystick and rescale the digital outputs to be in [-1, 1].
+        # create an a/d converter for the joystick and rescale the digital outputs to be in [-5, 5].
         joystick_y_ad_channel = 0
         joystick_x_ad_channel = 1
         self.adc = ADS7830(
@@ -102,6 +105,7 @@ class HGantry:
                 joystick_x_ad_channel: (-5.0, 5.0)
             }
         )
+        self.adc.only_report_state_changes = False
 
         # create a joystick. invert the y-axis values so that pushing forward increases them. center the gantry on
         # joystick press and move otherwise.
@@ -112,14 +116,50 @@ class HGantry:
             z_pin=self.joystick_z_pin,
             invert_y=True
         )
-        self.joystick.event(lambda s: (
-            self.center(HGantry.get_speed_from_joystick_state(s)) if s.z
-            else self.move_to_offset(
-                s.x,
-                s.y,
-                HGantry.get_speed_from_joystick_state(s)
-            )
-        ))
+        self.joystick.only_report_state_changes = False
+        self.joystick.event(lambda s: self.joystick_move(s))
+
+    def joystick_move(
+            self,
+            joystick_state: Joystick.State
+    ):
+        """
+        Move according to a new joystick state.
+
+        :param joystick_state: Joystick state.
+        """
+
+        if joystick_state.z:
+            self.center(100.0)
+        else:
+
+            if abs(joystick_state.x) >= 1.0:
+                if joystick_state.x > 0.0:
+                    move_x_mm = 1.0
+                else:
+                    move_x_mm = -1.0
+            else:
+                move_x_mm = 0.0
+
+            if abs(joystick_state.y) >= 1.0:
+                if joystick_state.y > 0.0:
+                    move_y_mm = 1.0
+                else:
+                    move_y_mm = -1.0
+            else:
+                move_y_mm = 0.0
+
+            if move_x_mm == 0.0 and move_y_mm == 0.0:
+                return
+
+            try:
+                self.move_to_offset(
+                    move_x_mm,
+                    move_y_mm,
+                    HGantry.get_speed_from_joystick_state(joystick_state)
+                )
+            except ValueError as e:
+                print(f'Failed to move according to joystick:  {e}')
 
     @staticmethod
     def get_speed_from_joystick_state(
@@ -158,7 +198,7 @@ class HGantry:
         if not limit_switches_inited:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
-        self.joystick.start_updating_state(0.5)
+        self.joystick.start_updating_state(0.01)
 
     def stop(
             self,
@@ -324,6 +364,8 @@ class HGantry:
         achieved.
         """
 
+        self.move_to_point_lock.acquire()
+
         # calculate x steps (left/right) and y steps (down/up) to move
         move_x_mm, move_y_mm = self.get_move_to(x, y)
         x_steps = move_x_mm * self.steps_per_mm
@@ -381,7 +423,11 @@ class HGantry:
         self.x += move_x_mm - skipped_x_mm
         self.y += move_y_mm - skipped_y_mm
 
-        return skipped_x_mm == skipped_y_mm == 0.0
+        return_value = skipped_x_mm == skipped_y_mm == 0.0
+
+        self.move_to_point_lock.release()
+
+        return return_value
 
     def get_x_mm_y_mm_from_steps(
             self,

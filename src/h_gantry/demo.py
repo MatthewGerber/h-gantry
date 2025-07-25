@@ -1,5 +1,6 @@
 import logging
 import os.path
+import time
 
 import serial
 from serial import Serial
@@ -78,16 +79,19 @@ def main():
 
     gantry.start()
     gantry.calibrate(100.0)
+    gantry.move_to_offset(10.0, 0.0, 100.0)
+    gantry.move_to_offset(-20.0, 0.0, 100.0)
     gantry.center(100.0)
-    # gantry.move_to_offset(10.0, 0.0, 100.0)
-    # gantry.move_to_point(50.0, 0.0, 100.0)
-    # gantry.move_to_point(50.0, 0.0, 100.0)
-    # gantry.move_to_point(0.0, 0.0, 100.0)
-    # gantry.move_to_point(0.0, 50.0, 100.0)
-    # gantry.move_to_point(0.0, -50.0, 100.0)
-    # gantry.move_to_point(0.0, 0.0, 100.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
     # gantry.move_to_points(circle_points, 100.0, True)
+    # for i in range(30):
+    #     gantry.joystick.update_state()
+    #     time.sleep(0.5)
+    #     print(f'Joystick update {i}')
+    try:
+        time.sleep(1000.0)
+    except KeyboardInterrupt:
+        pass
 
     gantry.stop(True)
 
