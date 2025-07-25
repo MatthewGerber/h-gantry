@@ -64,7 +64,7 @@ def main():
     )
 
     gantry = HGantry(
-        joystick_z_pin=CkPin.GPIO18,
+        joystick_z_pin=CkPin.GPIO17,
         left_stepper=left_stepper,
         right_stepper=right_stepper,
         left_limit_switch_arduino_pin=3,
