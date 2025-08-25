@@ -1,0 +1,11 @@
+theme: jekyll-theme-cayman
+
+include:
+ - "**/*.md"
+
+plugins:
+  - jekyll-sitemap
+
+title: "h-gantry"
+description: "A two-axis fixed-motor gantry"
+url: "https://matthewgerber.github.io/h-gantry"
