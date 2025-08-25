@@ -6,6 +6,7 @@ from datetime import timedelta
 from threading import Lock
 from typing import Tuple, List
 
+import numpy as np
 from smbus2 import SMBus
 
 from raspberry_py.gpio import CkPin
@@ -101,8 +102,8 @@ class HGantry:
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
-                joystick_y_ad_channel: (-5.0, 5.0),
-                joystick_x_ad_channel: (-5.0, 5.0)
+                joystick_y_ad_channel: (-9.0, 9.0),
+                joystick_x_ad_channel: (-9.0, 9.0)
             }
         )
         self.adc.only_report_state_changes = False
@@ -129,37 +130,26 @@ class HGantry:
         :param joystick_state: Joystick state.
         """
 
+        # center on joystick press
         if joystick_state.z:
             self.center(100.0)
-        else:
 
-            if abs(joystick_state.x) >= 1.0:
-                if joystick_state.x > 0.0:
-                    move_x_mm = 1.0
-                else:
-                    move_x_mm = -1.0
-            else:
-                move_x_mm = 0.0
+        # ignore negligible joystick movements and noise
+        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 2.0:
 
-            if abs(joystick_state.y) >= 1.0:
-                if joystick_state.y > 0.0:
-                    move_y_mm = 1.0
-                else:
-                    move_y_mm = -1.0
-            else:
-                move_y_mm = 0.0
-
-            if move_x_mm == 0.0 and move_y_mm == 0.0:
-                return
-
-            try:
-                self.move_to_offset(
-                    move_x_mm,
-                    move_y_mm,
-                    HGantry.get_speed_from_joystick_state(joystick_state)
-                )
-            except ValueError as e:
-                print(f'Failed to move according to joystick:  {e}')
+            # move 1 mm in the joystick direction as indicated by the vector norm
+            move_vector = np.array([joystick_state.x, joystick_state.y])
+            norm = np.linalg.norm(move_vector)
+            if norm != 0.0:
+                move_x_mm, move_y_mm = move_vector / norm
+                try:
+                    self.move_to_offset(
+                        move_x_mm,
+                        move_y_mm,
+                        HGantry.get_speed_from_joystick_state(joystick_state)
+                    )
+                except ValueError as e:
+                    print(f'Failed to move according to joystick:  {e}')
 
     @staticmethod
     def get_speed_from_joystick_state(
