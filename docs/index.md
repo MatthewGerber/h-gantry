@@ -29,21 +29,43 @@ interesting, which is also an advantage!
   [Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/)
 
 ## Rails and Plates
-* [2020 v-slot rails](https://www.amazon.com/dp/B087PWGBM7)
-* [V-wheel plates](https://www.amazon.com/QWORK-V-Wheel-Aluminum-Profile-Printer/dp/B0CHYS3G96)
+* [2020 v-slot rails (3)](https://www.amazon.com/dp/B087PWGBM7)
+* [V-wheel plates (2)](https://www.amazon.com/QWORK-V-Wheel-Aluminum-Profile-Printer/dp/B0CHYS3G96)
 
 ## Other Hardware
 
 * [M4 bolts](https://www.amazon.com/dp/B073SX315M)
 * [M2 bolts](https://www.amazon.com/dp/B07W5HBRMP)
 * [Hand tap](https://www.amazon.com/dp/B0736T5NM6)
-* [Timing belt (1) and pulleys (2)](https://www.amazon.com/dp/B07XG9JN5B)
+* [Cutting oil](https://www.amazon.com/dp/B003X3ZKXI)
+* [Timing belt (1) and timing pulleys (2)](https://www.amazon.com/dp/B07XG9JN5B)
 * [Idler pulleys (6)](https://www.amazon.com/dp/B0BSPC7D9S)
-* [Limit switches (2)](https://www.amazon.com/dp/B073TYWX86)
+* [Limit switches (4)](https://www.amazon.com/dp/B073TYWX86)
 * [Joystick (1)](https://www.amazon.com/Joystick-Module-Arduino-ESP8266-Raspberry/dp/B0DQ37P5RQ/)
 * [Resistors](https://www.amazon.com/Resistor-Resistors-Assortment-Breadboard-Electronics/dp/B0F4P352BB/)
 
 # Print the Parts
 
-See [here](https://github.com/MatthewGerber/3d-printing) for the 3d-printing tech that I use. The plastic parts are
-available [here](https://www.printables.com/model/1390344-h-style-two-axis-gantry).
+See [here](https://github.com/MatthewGerber/3d-printing) for the 3d-printing tech that I use. The part models for the 
+gantry are available [here](https://www.printables.com/model/1390344-h-style-two-axis-gantry). The assembly also uses
+the cable drag chain [here](https://www.printables.com/model/1401355-cable-drag-chain) to keep wires from tangling under 
+the gantry when it moves. Print two cable drag chains.
+
+# Assemble the Gantry
+
+1. Tap M4 holes in each end of the three rails using the hand tap and tapping oil.
+2. Roll the v-wheel plates onto the side rails.
+3. Bolt the end caps onto the side rails using M4 bolts.
+4. Screw the magnet stand onto the center v-wheel plate using an M2 bolt and the magnet stand washer.
+5. Roll the magnet stand v-wheel plate onto the cross rail.
+6. Bolt the end caps onto the cross rail using M4 bolts.
+7. Bolt the cross-rail end caps onto the side rail v-wheel plates.
+8. Bolt timing pulleys to the stepper motors.
+9. Bolt the stepper motors to their mounts.
+10. Place idler pulleys and bolt them into place using M2 bolts and idler pulley washers.
+
+# Limit Switches
+
+# Cable Drag Chains
+
+# Circuit
