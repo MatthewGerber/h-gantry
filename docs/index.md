@@ -1,4 +1,4 @@
-[Home](index.md) > H-Gantry
+Home
 * Content
 {:toc}
 
