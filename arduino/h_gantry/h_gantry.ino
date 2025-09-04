@@ -50,6 +50,86 @@ unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
 long right_stepper_limit_skipped_drives;
 
+struct step {
+  unsigned long seq_id;
+  byte stepper_id;
+  unsigned int num_drives;
+  int drive_increment;
+  unsigned long us_per_drive;
+  step* next;
+};
+
+step* steps_head;
+step* steps_tail;
+size_t num_steps;
+unsigned long next_step_seq_id;
+
+void add_step(unsigned long seq_id, byte stepper_id, unsigned int num_drives, int drive_increment, unsigned long us_per_drive) {
+
+  step* new_step = new step();
+  new_step->seq_id = seq_id;
+  new_step->stepper_id = stepper_id;
+  new_step->num_drives = num_drives;
+  new_step->drive_increment = drive_increment;
+  new_step->us_per_drive = us_per_drive;
+  new_step->next = nullptr;
+
+  if (steps_head == nullptr) {
+    steps_head = new_step;
+  }
+
+  if (steps_tail == nullptr) {
+    steps_tail = new_step;
+  } else {
+    steps_tail->next = new_step;
+  }
+}
+
+step* pop_step() {
+  step* first_step = steps_head;
+  if (first_step != nullptr) {
+    steps_head = first_step->next;
+    if (steps_head == nullptr) {
+      steps_tail = nullptr;
+    }
+  }
+
+  return first_step;
+}
+
+void execute_next_steps(bool drive_immediately) {
+  bool executed = false;
+  while (steps_head != nullptr && steps_head->seq_id == next_step_seq_id) {
+    execute_step(pop_step(), drive_immediately);
+    executed = true;
+  }
+  if (executed) {
+    next_step_seq_id += 1;
+  }
+}
+
+void execute_step(step* to_execute, bool drive_immediately) {
+  if (to_execute->stepper_id == LEFT_STEPPER_ID && left_stepper_inited) {
+    left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+    left_stepper_drive_increment = to_execute->drive_increment;
+    left_stepper_drive_target = left_stepper_drive_idx + (to_execute->num_drives * left_stepper_drive_increment);
+    left_stepper_us_per_drive = to_execute->us_per_drive;
+    left_stepper_limit_skipped_drives = 0;
+    if (drive_immediately) {
+      left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;
+    }
+  } else if (to_execute->stepper_id == RIGHT_STEPPER_ID && right_stepper_inited) {
+    right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+    right_stepper_drive_increment = to_execute->drive_increment;
+    right_stepper_drive_target = right_stepper_drive_idx + (to_execute->num_drives * right_stepper_drive_increment);
+    right_stepper_us_per_drive = to_execute->us_per_drive;
+    right_stepper_limit_skipped_drives = 0;
+    if (drive_immediately) {
+      right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;
+    }
+  }
+}
+
 // limit switches
 const byte LIMIT_SWITCHES_ID = 2;
 byte left_limit_switch_pin;
@@ -69,7 +149,7 @@ const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 
 // top-level command:  step
 const byte CMD_STEP = 2;
-const byte CMD_STEP_ARGS_LEN = 5;
+const byte CMD_STEP_ARGS_LEN = 9;
 
 // top-level command:  stop
 const byte CMD_STOP = 3;
@@ -80,6 +160,7 @@ const byte CMD_STOP = 3;
 void setup() {
   // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
+  next_step_seq_id = 0;
 }
 
 long bytes_to_long(byte bytes[]) {
@@ -95,6 +176,15 @@ unsigned int bytes_to_unsigned_int(byte bytes[], size_t start_idx) {
   unsigned int value = 0;
   value += ((unsigned int)bytes[start_idx]) << 8;
   value += ((unsigned int)bytes[start_idx + 1]);
+  return value;
+}
+
+unsigned long bytes_to_unsigned_long(byte bytes[], size_t start_idx) {
+  unsigned long value = 0;
+  value += ((unsigned long)bytes[start_idx]) << 24;
+  value += ((unsigned long)bytes[start_idx + 1]) << 16;
+  value += ((unsigned long)bytes[start_idx + 2]) << 8;
+  value += ((unsigned long)bytes[start_idx + 3]);
   return value;
 }
 
@@ -130,7 +220,7 @@ void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[3] = src[src_start_idx + 3];
 }
 
-byte mod(long x, byte y){
+byte mod(long x, byte y) {
   return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
 
@@ -215,7 +305,7 @@ void loop() {
    * 6) note that we take half steps, which means we drive a motor twice per step. for
    * the purpose of checking left/right and down/up movement, it is equivalent to check
    * the number of left and right drives that remain.
-   */ 
+   */
   bool moving_left = false;
   bool moving_right = false;
   bool moving_down = false;
@@ -255,7 +345,7 @@ void loop() {
     bool bottom_limit_switch_pressed = !digitalRead(bottom_limit_switch_pin);
     bool top_limit_switch_pressed = !digitalRead(top_limit_switch_pin);
     if (
-      (moving_left && left_limit_switch_pressed) || 
+      (moving_left && left_limit_switch_pressed) ||
       (moving_right && right_limit_switch_pressed) ||
       (moving_down && bottom_limit_switch_pressed) ||
       (moving_up && top_limit_switch_pressed)
@@ -268,6 +358,7 @@ void loop() {
    * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
    * caller when the drive index reaches the target.
    */
+  bool completed_left_stepper = false;
   if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
     left_stepper_drive_idx += left_stepper_drive_increment;
     if (limited_travel) {
@@ -277,11 +368,13 @@ void loop() {
       drive_left_stepper();
     }
     if (left_stepper_drive_idx == left_stepper_drive_target) {
+      write_long(next_step_seq_id - 1);
       write_byte(LEFT_STEPPER_ID);
       floatbytes left_stepper_limit_skipped_steps;
       left_stepper_limit_skipped_steps.number = left_stepper_limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
       write_float(left_stepper_limit_skipped_steps);
       SerialUART.flush();
+      completed_left_stepper = true;
     }
   }
 
@@ -289,6 +382,7 @@ void loop() {
    * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
    * caller when the drive index reaches the target.
    */
+  bool completed_right_stepper = false;
   if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
     right_stepper_drive_idx += right_stepper_drive_increment;
     if (limited_travel) {
@@ -298,12 +392,18 @@ void loop() {
       drive_right_stepper();
     }
     if (right_stepper_drive_idx == right_stepper_drive_target) {
+      write_long(next_step_seq_id - 1);
       write_byte(RIGHT_STEPPER_ID);
       floatbytes right_stepper_limit_skipped_steps;
       right_stepper_limit_skipped_steps.number = right_stepper_limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
       write_float(right_stepper_limit_skipped_steps);
       SerialUART.flush();
+      completed_right_stepper = true;
     }
+  }
+
+  if (left_stepper_drive_idx == left_stepper_drive_target && right_stepper_drive_idx == right_stepper_drive_target) {
+    execute_next_steps(!completed_left_stepper && !completed_right_stepper);
   }
 
   // process a commands sent over the serial connection
@@ -311,7 +411,7 @@ void loop() {
 
     // read number of commands to process. we process multiple commands per loop because the steppers and their
     // drive indices need to remain synchronized when evaluating left/right and down/up movement above. reading
-    // a single step command per loop results in one stepper advancing before the other, throwing off equality 
+    // a single step command per loop results in one stepper advancing before the other, throwing off equality
     // checks.
     byte num_commands_bytes[NUM_COMMANDS_BYTES_LEN];
     SerialUART.readBytes(num_commands_bytes, NUM_COMMANDS_BYTES_LEN);
@@ -383,56 +483,31 @@ void loop() {
         }
       }
       else if (command == CMD_STEP) {
-        if (component_id == LEFT_STEPPER_ID && left_stepper_inited) {
-          
-          byte args[CMD_STEP_ARGS_LEN];
-          SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
-          // calculate number of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
-          unsigned int left_stepper_num_steps = bytes_to_unsigned_int(args, 0);
-          unsigned int left_stepper_num_drives = left_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
-          left_stepper_drive_increment = args[2];
-          if (left_stepper_drive_increment == 0) {
-            left_stepper_drive_increment = -1;
-          }
-          left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-          left_stepper_drive_target = left_stepper_drive_idx + (left_stepper_num_drives * left_stepper_drive_increment);
-          left_stepper_limit_skipped_drives = 0;
+        byte args[CMD_STEP_ARGS_LEN];
+        SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
-          // set microseconds per drive based on total ms to step. impose maximum drive rate.
-          unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
-          left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
-          if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-            left_stepper_us_per_drive = MIN_US_PER_DRIVE;
-          }
-          left_stepper_previous_drive_us = micros() - left_stepper_us_per_drive;  // drive immediately on next loop
+        unsigned long seq_id = bytes_to_unsigned_long(args, 0);
+
+        // calculate number of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
+        unsigned int num_steps = bytes_to_unsigned_int(args, 4);
+        unsigned int num_drives = num_steps * STEPPER_DRIVES_PER_STEP;
+        int drive_increment = args[2];
+        if (drive_increment == 0) {
+          drive_increment = -1;
         }
-        else if (component_id == RIGHT_STEPPER_ID && right_stepper_inited) {
 
-          byte args[CMD_STEP_ARGS_LEN];
-          SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
-
-          // calculate number of drives from steps and increment direction. increment comes in as 0 (decrement) or 1 (increment).
-          unsigned int right_stepper_num_steps = bytes_to_unsigned_int(args, 0);
-          unsigned int right_stepper_num_drives = right_stepper_num_steps * STEPPER_DRIVES_PER_STEP;
-          right_stepper_drive_increment = args[2];
-          if (right_stepper_drive_increment == 0) {
-            right_stepper_drive_increment = -1;
-          }
-          right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-          right_stepper_drive_target = right_stepper_drive_idx + (right_stepper_num_drives * right_stepper_drive_increment);
-          right_stepper_limit_skipped_drives = 0;
-
-          // set microseconds per drive based on total ms to step. impose maximum drive rate.
-          unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 3);
-          right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(right_stepper_num_drives)) * 1000.0);
-          if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-            right_stepper_us_per_drive = MIN_US_PER_DRIVE;
-          }
-          right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;  // drive immediately on next loop
+        // set microseconds per drive based on total ms to step. impose maximum drive rate.
+        unsigned int ms_to_step = bytes_to_unsigned_int(args, 7);
+        unsigned long us_per_drive = (unsigned long)((ms_to_step / float(num_drives)) * 1000.0);
+        if (us_per_drive < MIN_US_PER_DRIVE) {
+          us_per_drive = MIN_US_PER_DRIVE;
         }
+
+        add_step(seq_id, component_id, num_drives, drive_increment, us_per_drive);
+
       }
-      if (command == CMD_STOP) {
+      else if (command == CMD_STOP) {
         if (component_id == LEFT_STEPPER_ID && left_stepper_inited) {
           stop_left_stepper();
           write_bool(true);
