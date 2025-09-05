@@ -72,6 +72,8 @@ class HGantry:
         self.right_driver = right_driver
         assert self.right_driver.asynchronous
 
+        self.step_sequence_idx = 0
+
         # calculate timing pulley circumference and steps/mm based on pulley diameter
         self.timing_pulley_circ_mm = math.pi * self.timing_pulley_dia_mm
         self.timing_pulley_mm_per_degree = self.timing_pulley_circ_mm / 360.0
@@ -381,25 +383,28 @@ class HGantry:
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
         # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
-        # the stepper identifier and the number of skipped steps due to limiting.
+        # the step sequence, stepper identifier, and the number of skipped steps due to limiting.
         left_stepper_has_steps = left_stepper_steps != 0
         right_stepper_has_steps = right_stepper_steps != 0
         num_commands = left_stepper_has_steps + right_stepper_has_steps
         self.arduino_serial.write_then_read(num_commands.to_bytes(1), 0, False)
         get_result_functions = []
         if left_stepper_has_steps:
-            get_result_functions.append(self.left_stepper.step(left_stepper_steps, time_to_step))
+            get_result_functions.append(self.left_stepper.step(self.step_sequence_idx, left_stepper_steps, time_to_step))
         else:
-            get_result_functions.append(lambda: (self.left_driver.identifier, 0.0))
+            get_result_functions.append(lambda: (self.step_sequence_idx, self.left_driver.identifier, 0.0))
         if right_stepper_has_steps:
-            get_result_functions.append(self.right_stepper.step(right_stepper_steps, time_to_step))
+            get_result_functions.append(self.right_stepper.step(self.step_sequence_idx, right_stepper_steps, time_to_step))
         else:
-            get_result_functions.append(lambda: (self.right_driver.identifier, 0.0))
+            get_result_functions.append(lambda: (self.step_sequence_idx, self.right_driver.identifier, 0.0))
+
+        if num_commands > 0:
+            self.step_sequence_idx += 1
 
         # process results, obtaining skipped steps for each stepper. calculate skipped distances from skipped steps.
         left_stepper_skipped_steps, right_stepper_skipped_steps = [
             skipped_steps
-            for _, skipped_steps in sorted([  # tuples have stepper id in first tuple element
+            for _, _, skipped_steps in sorted([  # tuples have sequence id and stepper id in the first two elements
                 get_result()
                 for get_result in get_result_functions
             ])
