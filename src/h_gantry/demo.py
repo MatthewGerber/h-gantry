@@ -79,8 +79,8 @@ def main():
 
     gantry.start()
     gantry.calibrate(100.0)
-    gantry.move_to_offset(10.0, 0.0, 100.0)
-    gantry.move_to_offset(-20.0, 0.0, 100.0)
+    gantry.move_to_offset(10.0, 0.0, 100.0, True)
+    gantry.move_to_offset(-20.0, 0.0, 100.0, True)
     gantry.center(100.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
     # gantry.move_to_points(circle_points, 100.0, True)
@@ -100,14 +100,15 @@ def main():
 
 def test_cross_pattern(
         gantry: HGantry,
-        speed_mm_per_sec: float
+        speed_mm_per_sec: float,
+        block: bool
 ):
-    gantry.move_to_point(10, 0, speed_mm_per_sec)
-    gantry.move_to_point(-10, 0, speed_mm_per_sec)
-    gantry.move_to_point(0, 0, speed_mm_per_sec)
-    gantry.move_to_point(0, 10, speed_mm_per_sec)
-    gantry.move_to_point(0, -10, speed_mm_per_sec)
-    gantry.move_to_point(0, 0, speed_mm_per_sec)
+    gantry.move_to_point(10, 0, speed_mm_per_sec, block)
+    gantry.move_to_point(-10, 0, speed_mm_per_sec, block)
+    gantry.move_to_point(0, 0, speed_mm_per_sec, block)
+    gantry.move_to_point(0, 10, speed_mm_per_sec, block)
+    gantry.move_to_point(0, -10, speed_mm_per_sec, block)
+    gantry.move_to_point(0, 0, speed_mm_per_sec, block)
 
 
 if __name__ == '__main__':

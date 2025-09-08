@@ -2,9 +2,10 @@ import json
 import logging
 import math
 import os.path
+from collections import deque
 from datetime import timedelta
 from threading import Lock
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import numpy as np
 from smbus2 import SMBus
@@ -93,7 +94,10 @@ class HGantry:
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
-        # create an a/d converter for the joystick and rescale the digital outputs to be in [-5, 5].
+        # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
+        # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
+        # and joystick report synchronous events that land at move_to_point, which uses a lock to limit step commands
+        # to the arduino.
         joystick_y_ad_channel = 0
         joystick_x_ad_channel = 1
         self.adc = ADS7830(
@@ -109,7 +113,9 @@ class HGantry:
         self.adc.only_report_state_changes = False
 
         # create a joystick. invert the y-axis values so that pushing forward increases them. center the gantry on
-        # joystick press and move otherwise.
+        # joystick press and move otherwise. report all state updates so that we get regular joystick events even when
+        # the joystick isn't changing position. both the adc and joystick report synchronous events that land at
+        # move_to_point, which uses a lock to limit step commands to the arduino.
         self.joystick = Joystick(
             adc=self.adc,
             x_channel=joystick_x_ad_channel,
@@ -119,6 +125,10 @@ class HGantry:
         )
         self.joystick.only_report_state_changes = False
         self.joystick.event(lambda s: self.joystick_move(s))
+        self.joystick_update_interval_seconds = 0.01
+
+        self.step_async_results_buffer = deque()
+        self.step_async_results_buffer_max_len = 3
 
     def joystick_move(
             self,
@@ -146,7 +156,8 @@ class HGantry:
                     self.move_to_offset(
                         move_x_mm,
                         move_y_mm,
-                        HGantry.get_speed_from_joystick_state(joystick_state)
+                        HGantry.get_speed_from_joystick_state(joystick_state),
+                        False
                     )
                 except ValueError as e:
                     print(f'Failed to move according to joystick:  {e}')
@@ -186,7 +197,7 @@ class HGantry:
         if not limit_switches_inited:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
-        self.joystick.start_updating_state(0.01)
+        self.joystick.start_updating_state(self.joystick_update_interval_seconds)
 
     def stop(
             self,
@@ -197,6 +208,9 @@ class HGantry:
 
         :param save_state: Whether to save the gantry's state after stopping.
         """
+
+        # process the buffer to obtain current x/y position
+        self.move_to_offset(0.0, 0.0, 10.0, True)
 
         self.joystick.stop_updating_state()
         self.adc.close()
@@ -238,7 +252,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        if self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec):
+        if self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, True):
             pass
         else:
             raise ValueError('Centering should never hit a limit switch.')
@@ -253,7 +267,7 @@ class HGantry:
         :param mm_per_sec: speed.
         """
 
-        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec, True):
             pass
 
     def move_to_right_limit(
@@ -266,7 +280,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec):
+        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec, True):
             pass
 
     def move_to_bottom_limit(
@@ -279,7 +293,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec, True):
             pass
 
     def move_to_top_limit(
@@ -292,7 +306,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec):
+        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec, True):
             pass
 
     def calibrate(
@@ -338,16 +352,18 @@ class HGantry:
             self,
             x: float,
             y: float,
-            mm_per_sec: float
-    ) -> bool:
+            mm_per_sec: float,
+            block: bool
+    ) -> Optional[bool]:
         """
         Move to a point.
 
         :param x: X coordinate to move to.
         :param y: Y coordinate to move to.
         :param mm_per_sec: Speed in mm per second.
+        :param block: Whether to block until the movement is complete.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
-        achieved.
+        achieved. Will be None if the move was buffered and not completed.
         """
 
         self.move_to_point_lock.acquire()
@@ -376,35 +392,65 @@ class HGantry:
         distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-        # send step command for the joint action of the two steppers, plus a dummy component that will be ignored.
+        # send step command for the joint action of the two steppers, plus a dummy component that will be ignored. the
+        # steppers will send their step commands next, which the arduino will process jointly.
         self.arduino_serial.write_then_read(
             StepperMotorDriverArduinoUln2003.Command.STEP.to_bytes(1) +
-            (0).to_bytes(1)
+            (0).to_bytes(1),
+            0,
+            False
         )
 
         # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
-        # the stepper identifier and the number of skipped steps due to limiting. process results, obtaining skipped
-        # steps for each stepper. calculate skipped distances from skipped steps.
-        left_stepper_skipped_steps, right_stepper_skipped_steps = [
-            skipped_steps
-            for _, skipped_steps in sorted([  # tuples have stepper id as the first element
-                get_result()
-                for get_result in [
-                    self.left_stepper.step(left_stepper_steps, time_to_step),
-                    self.right_stepper.step(right_stepper_steps, time_to_step)
-                ]
-            ])
-        ]
-        skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
-            left_stepper_skipped_steps,
-            right_stepper_skipped_steps
-        )
+        # the stepper identifier and the number of skipped steps due to limiting.
+        self.step_async_results_buffer.append((
+            self.left_stepper.step(left_stepper_steps, time_to_step),
+            self.right_stepper.step(right_stepper_steps, time_to_step)
+        ))
 
-        # advance x, y positions, minus any skipped movement due to limit switches.
-        self.x += move_x_mm - skipped_x_mm
-        self.y += move_y_mm - skipped_y_mm
+        # if the caller wants to block and wait for the current move to complete, then set the maximum buffer length to
+        # zero, which will force all buffered steps (including the current) to complete before returning.
+        if block:
+            max_buffer_len = 0
 
-        return_value = skipped_x_mm == skipped_y_mm == 0.0
+        # otherwise, allow calls to buffer up to the given length.
+        else:
+            max_buffer_len = self.step_async_results_buffer_max_len
+
+        # process the buffer until it's within the max length
+        succeeded_without_limit = True
+        while len(self.step_async_results_buffer) > max_buffer_len:
+
+            # obtaining skipped steps for each stepper
+            left_stepper_skipped_steps, right_stepper_skipped_steps = [
+                skipped_steps
+                for _, skipped_steps in sorted([  # tuples have stepper id as the first element
+                    get_result()
+                    for get_result in self.step_async_results_buffer.popleft()
+                ])
+            ]
+
+            # calculate skipped distances from skipped steps
+            skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
+                left_stepper_skipped_steps,
+                right_stepper_skipped_steps
+            )
+
+            # advance x and y positions, minus any skipped movement due to limit switches.
+            self.x += move_x_mm - skipped_x_mm
+            self.y += move_y_mm - skipped_y_mm
+
+            if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
+                succeeded_without_limit = False
+
+        # if the buffer is empty, then all movements were processed and the success-without-limit indicator is valid for
+        # the current call.
+        if len(self.step_async_results_buffer) == 0:
+            return_value = succeeded_without_limit
+
+        # otherwise, the current move was buffered, and the return value is not defined.
+        else:
+            return_value = None
 
         self.move_to_point_lock.release()
 
@@ -459,13 +505,14 @@ class HGantry:
             points.append((self.x, self.y))
 
         for x, y in points:
-            self.move_to_point(x, y, mm_per_sec)
+            self.move_to_point(x, y, mm_per_sec, False)
 
     def move_to_offset(
             self,
             x_offset_mm: float,
             y_offset_mm: float,
-            mm_per_sec: float
+            mm_per_sec: float,
+            block: bool
     ) -> bool:
         """
         Move to an offset from the current position.
@@ -473,11 +520,12 @@ class HGantry:
         :param x_offset_mm: X offset.
         :param y_offset_mm: Y offset.
         :param mm_per_sec: Speed in mm per second.
+        :param block: Whether to block until the movement is complete.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
         achieved.
         """
 
-        return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec)
+        return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec, block)
 
 
 def generate_circle_points(

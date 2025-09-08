@@ -86,16 +86,16 @@ void add_step(
   }
 }
 
-// pop the next step from the buffer
-step* pop_step() {
-  step* first_step = steps_head;
-  if (first_step != nullptr) {
-    steps_head = first_step->next;
+// get the next step from the buffer
+step* get_next_step() {
+  step* next_step = steps_head;
+  if (next_step != nullptr) {
+    steps_head = next_step->next;
     if (steps_head == nullptr) {
       steps_tail = nullptr;
     }
   }
-  return first_step;
+  return next_step;
 }
 
 // start a step
@@ -166,19 +166,19 @@ void setup() {
   //SerialUART.begin(115200, SERIAL_8N1);
 }
 
+void long_to_bytes(long value, byte bytes[]) {
+  bytes[0] = (byte)(value >> 24);
+  bytes[1] = (byte)(value >> 16);
+  bytes[2] = (byte)(value >> 8);
+  bytes[3] = (byte)value;
+}
+
 long bytes_to_long(byte bytes[], size_t start_idx) {
-  unsigned long value = (unsigned long)(bytes[start_idx] << 24);
+  uint32_t value = ((uint32_t)bytes[start_idx]) << 24;
   value |= bytes[start_idx + 1] << 16;
   value |= bytes[start_idx + 2] << 8;
   value |= bytes[start_idx + 3];
-  return (long)value;
-}
-
-void long_to_bytes(long value, byte bytes[]) {
-  bytes[3] = (byte)value;
-  bytes[2] = (byte)(value >> 8);
-  bytes[1] = (byte)(value >> 16);
-  bytes[0] = (byte)(value >> 24);
+  return (int32_t)value;
 }
 
 void write_long(long value) {
@@ -187,19 +187,19 @@ void write_long(long value) {
   SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
+void unsigned_long_to_bytes(unsigned long value, byte bytes[]) {
+  bytes[0] = (byte)(value >> 24);
+  bytes[1] = (byte)(value >> 16);
+  bytes[2] = (byte)(value >> 8);
+  bytes[3] = (byte)value;
+}
+
 unsigned long bytes_to_unsigned_long(byte bytes[], size_t start_idx) {
-  unsigned long value = (unsigned long)(bytes[start_idx] << 24);
+  uint32_t value = ((uint32_t)bytes[start_idx]) << 24;
   value |= bytes[start_idx + 1] << 16;
   value |= bytes[start_idx + 2] << 8;
   value |= bytes[start_idx + 3];
   return value;
-}
-
-void unsigned_long_to_bytes(unsigned long value, byte bytes[]) {
-  bytes[3] = (byte)value;
-  bytes[2] = (byte)(value >> 8);
-  bytes[1] = (byte)(value >> 16);
-  bytes[0] = (byte)(value >> 24);
 }
 
 void write_unsigned_long(unsigned long value) {
@@ -208,26 +208,26 @@ void write_unsigned_long(unsigned long value) {
   SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
-int bytes_to_int(byte bytes[], size_t start_idx) {
-  unsigned int value = (unsigned int)(bytes[start_idx] << 8);
-  value |= bytes[start_idx + 1];
-  return (int)value;
-}
-
 void int_to_bytes(int value, byte bytes[]) {
-  bytes[1] = (byte)value;
   bytes[0] = (byte)(value >> 8);
+  bytes[1] = (byte)value;
 }
 
-unsigned int bytes_to_unsigned_int(byte bytes[], size_t start_idx) {
-  unsigned int value = (unsigned int)(bytes[start_idx] << 8);
+int bytes_to_int(byte bytes[], size_t start_idx) {
+  uint16_t value = ((uint16_t)bytes[start_idx]) << 8;
   value |= bytes[start_idx + 1];
-  return value;
+  return (int16_t)value;
 }
 
 void unsigned_int_to_bytes(unsigned int value, byte bytes[]) {
-  bytes[1] = (byte)value;
   bytes[0] = (byte)(value >> 8);
+  bytes[1] = (byte)value;
+}
+
+unsigned int bytes_to_unsigned_int(byte bytes[], size_t start_idx) {
+  uint16_t value = ((uint16_t)bytes[start_idx]) << 8;
+  value |= bytes[start_idx + 1];
+  return value;
 }
 
 void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
@@ -294,36 +294,6 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
   }
 
 void loop() {
-
-  for (long original = -5; original <= 5; ++original) {
-    byte arr[4];
-    long_to_bytes(-20, arr);
-    long resulting = bytes_to_long(arr, 0);
-    SerialUSB.println("Original:  " + String(original) + "; Resulting:  " + String(resulting));
-  }
-  
-  for (unsigned long original = 0; original <= 20; ++original) {
-    byte arr[4];
-    unsigned_long_to_bytes(original, arr);
-    unsigned long resulting = bytes_to_unsigned_long(arr, 0);
-    SerialUSB.println("Original:  " + String(original) + "; Resulting:  " + String(resulting));
-  }
-  
-  for (int original = -5; original <= 5; ++original) {
-    byte arr[4];
-    int_to_bytes(-20, arr);
-    int resulting = bytes_to_int(arr, 0);
-    SerialUSB.println("Original:  " + String(original) + "; Resulting:  " + String(resulting));
-  }
-  
-  for (unsigned int original = 0; original <= 20; ++original) {
-    byte arr[4];
-    unsigned_int_to_bytes(original, arr);
-    unsigned int resulting = bytes_to_unsigned_int(arr, 0);
-    SerialUSB.println("Original:  " + String(original) + "; Resulting:  " + String(resulting));
-  }
-  
-  delay(1000);
 
   /* check whether the cart is moving left, right, up, and down. this calculation is based on the 
    * following equations:
@@ -571,7 +541,7 @@ void loop() {
   // then begin driving the steppers immediately. otherwise, if a stepper just completed, then we'll set the drive 
   // values but wait the given drive delay to ensure proper stepper timing.
   if (left_stepper_drive_idx == left_stepper_drive_target && right_stepper_drive_idx == right_stepper_drive_target) {
-    step* next_step = pop_step();
+    step* next_step = get_next_step();
     if (next_step != nullptr) {
       bool drive_immediately = !completed_left_stepper && !completed_right_stepper;
       start_step(next_step, drive_immediately);
