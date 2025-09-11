@@ -84,6 +84,8 @@ void add_step(
   else {
     steps_tail->next = new_step;
   }
+
+  // SerialUSB.println("Added step:  " + String(left_stepper_num_drives) + " " + String(left_stepper_us_per_drive) + " " + String(right_stepper_num_drives) + " " + String(right_stepper_us_per_drive));
 }
 
 // get the next step from the buffer
@@ -103,11 +105,12 @@ void start_step(step* to_start, bool drive_immediately) {
 
   if (left_stepper_inited) {
     if (to_start->left_stepper_num_drives == 0) {
+      left_stepper_drive_increment = 0;
       write_stepper_done(LEFT_STEPPER_ID, 0);
     }
     else {
       left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-      left_stepper_drive_increment = 1 ? to_start->left_stepper_num_drives > 0 : -1;
+      left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;
       left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
       left_stepper_us_per_drive = to_start->left_stepper_us_per_drive;
       left_stepper_limit_skipped_drives = 0;
@@ -119,11 +122,12 @@ void start_step(step* to_start, bool drive_immediately) {
   
   if (right_stepper_inited) {
     if (to_start->right_stepper_num_drives == 0) {
+      right_stepper_drive_increment = 0;
       write_stepper_done(RIGHT_STEPPER_ID, 0);
     }
     else {
       right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-      right_stepper_drive_increment = 1 ? to_start->right_stepper_num_drives > 0 : -1;
+      right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
       right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
       right_stepper_us_per_drive = to_start->right_stepper_us_per_drive;
       right_stepper_limit_skipped_drives = 0;
@@ -132,6 +136,8 @@ void start_step(step* to_start, bool drive_immediately) {
       }
     }
   }
+
+  // SerialUSB.println("Started step:  l inc=" + String(left_stepper_drive_increment) + " r inc=" + String(right_stepper_drive_increment));
 
 }
 
@@ -291,6 +297,7 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     limit_skipped_steps.number = limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
     SerialUART.flush();
+    // SerialUSB.println("Flushed done:  " + String(stepper_id));
   }
 
 void loop() {
@@ -404,6 +411,7 @@ void loop() {
     else {
       drive_left_stepper();
     }
+    // SerialUSB.println("Left:  " + String(left_stepper_drive_idx) + " " + String(left_stepper_drive_target));
     if (left_stepper_drive_idx == left_stepper_drive_target) {
       write_stepper_done(LEFT_STEPPER_ID, left_stepper_limit_skipped_drives);
       completed_left_stepper = true;
@@ -423,6 +431,7 @@ void loop() {
     else {
       drive_right_stepper();
     }
+    // SerialUSB.println("Right:  " + String(right_stepper_drive_idx) + " " + String(right_stepper_drive_target));
     if (right_stepper_drive_idx == right_stepper_drive_target) {
       write_stepper_done(RIGHT_STEPPER_ID, right_stepper_limit_skipped_drives);
       completed_right_stepper = true;
@@ -458,6 +467,7 @@ void loop() {
         drive_left_stepper();
         left_stepper_inited = true;
         write_bool(true);
+        // SerialUSB.println("left stepper inited");
       }
       else if (component_id == RIGHT_STEPPER_ID) {
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
@@ -478,6 +488,7 @@ void loop() {
         drive_right_stepper();
         right_stepper_inited = true;
         write_bool(true);
+        // SerialUSB.println("right stepper inited");
       }
       else if (component_id == LIMIT_SWITCHES_ID) {
         byte args[CMD_INIT_LIMIT_SWITCHES_ARGS_LEN];
@@ -503,16 +514,16 @@ void loop() {
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       int left_stepper_num_drives = bytes_to_int(args, 2) * STEPPER_DRIVES_PER_STEP;
       unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
-      unsigned long left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(left_stepper_num_drives)) * 1000.0);
+      unsigned long left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
       if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
         left_stepper_us_per_drive = MIN_US_PER_DRIVE;
       }
 
       // right stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int right_stepper_num_drives = bytes_to_unsigned_int(args, 8) * STEPPER_DRIVES_PER_STEP;
+      int right_stepper_num_drives = bytes_to_int(args, 8) * STEPPER_DRIVES_PER_STEP;
       unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);
-      unsigned long right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(right_stepper_num_drives)) * 1000.0);
+      unsigned long right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
       if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
         right_stepper_us_per_drive = MIN_US_PER_DRIVE;
       }
