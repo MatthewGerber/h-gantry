@@ -162,8 +162,8 @@ const byte CMD_STOP = 3;
 #define SerialUART _UART1_
 
 void setup() {
-  SerialUSB.begin(9600);
-  //SerialUART.begin(115200, SERIAL_8N1);
+  // SerialUSB.begin(9600);
+  SerialUART.begin(115200, SERIAL_8N1);
 }
 
 void long_to_bytes(long value, byte bytes[]) {

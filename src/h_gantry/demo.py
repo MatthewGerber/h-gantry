@@ -32,7 +32,7 @@ def main():
     )
 
     poles = 32
-    output_rotor_ratio = 1 / 64.0
+    output_rotor_ratio = 1.0 / 64.0
 
     left_stepper = Stepper(
         poles=poles,

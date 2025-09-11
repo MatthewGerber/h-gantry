@@ -4,6 +4,7 @@ import math
 import os.path
 from collections import deque
 from datetime import timedelta
+from enum import IntEnum
 from threading import Lock
 from typing import Tuple, List, Optional
 
@@ -21,6 +22,21 @@ class HGantry:
     """
     Control for a two-axis gantry using two fixed-position stepper motors.
     """
+
+    class Command(IntEnum):
+        """
+        Commands.
+        """
+
+        INIT_LIMIT_SWITCHES = 1
+        STEP = 2
+
+    class ComponentId(IntEnum):
+        """
+        Components.
+        """
+
+        LIMIT_SWITCHES = 2
 
     def __init__(
             self,
@@ -185,8 +201,8 @@ class HGantry:
         self.left_stepper.start()
         self.right_stepper.start()
         limit_switches_inited = bool(self.arduino_serial.write_then_read(
-            (1).to_bytes(1) +  # init
-            (2).to_bytes(1) +  # limit switches
+            HGantry.Command.INIT_LIMIT_SWITCHES.to_bytes(1) +
+            HGantry.ComponentId.LIMIT_SWITCHES.to_bytes(1) +
             self.left_limit_switch_arduino_pin.to_bytes(1) +
             self.right_limit_switch_arduino_pin.to_bytes(1) +
             self.bottom_limit_switch_arduino_pin.to_bytes(1) +
@@ -395,7 +411,7 @@ class HGantry:
         # send step command for the joint action of the two steppers, plus a dummy component that will be ignored. the
         # steppers will send their step commands next, which the arduino will process jointly.
         self.arduino_serial.write_then_read(
-            StepperMotorDriverArduinoUln2003.Command.STEP.to_bytes(1) +
+            HGantry.Command.STEP.to_bytes(1) +
             (0).to_bytes(1),
             0,
             False
@@ -421,7 +437,7 @@ class HGantry:
         succeeded_without_limit = True
         while len(self.step_async_results_buffer) > max_buffer_len:
 
-            # obtaining skipped steps for each stepper
+            # obtain skipped steps for each stepper
             left_stepper_skipped_steps, right_stepper_skipped_steps = [
                 skipped_steps
                 for _, skipped_steps in sorted([  # tuples have stepper id as the first element
