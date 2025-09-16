@@ -51,9 +51,9 @@ byte right_driver_pin_4;
 long right_stepper_drive_idx;
 long right_stepper_drive_target;
 int right_stepper_drive_increment;
-unsigned long right_stepper_previous_drive_us;
-unsigned long right_stepper_us_per_drive;
 long right_stepper_limit_skipped_drives;
+unsigned long right_stepper_us_per_drive;
+unsigned long right_stepper_previous_drive_us;
 bool right_stepper_inited = false;
 
 // linked list of steps to take, acting as a read buffer. each step determines how the
@@ -106,44 +106,40 @@ step* get_next_step() {
 
 void start_step(step* to_start, bool drive_immediately) {
 
-  if (left_stepper_inited) {
-    if (to_start->left_stepper_num_drives == 0) {
-      left_stepper_drive_increment = 0;
-      left_stepper_us_per_drive = 0;
-      left_stepper_us_per_drive_target = 0;
-      write_stepper_done(LEFT_STEPPER_ID, 0);
-    }
-    else {
-      left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-      left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
-      left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;      
-      left_stepper_limit_skipped_drives = 0;
-      if (left_stepper_us_per_drive == 0) {
-        left_stepper_us_per_drive = MAX_US_PER_DRIVE;
-      }
-      unsigned long curr_time_us = micros();
-      if (drive_immediately) {
-        left_stepper_previous_drive_us = curr_time_us - left_stepper_us_per_drive;
-      }
-      left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
-      left_stepper_previous_acceleration_us = curr_time_us;
-    }
+  if (to_start->left_stepper_num_drives == 0) {
+    left_stepper_drive_increment = 0;
+    left_stepper_us_per_drive = 0;
+    left_stepper_us_per_drive_target = 0;
+    write_stepper_done(LEFT_STEPPER_ID, 0);
   }
-  
-  if (right_stepper_inited) {
-    if (to_start->right_stepper_num_drives == 0) {
-      right_stepper_drive_increment = 0;
-      write_stepper_done(RIGHT_STEPPER_ID, 0);
+  else {
+    left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+    left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
+    left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;
+    left_stepper_limit_skipped_drives = 0;
+    if (left_stepper_us_per_drive == 0) {
+      left_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
-    else {
-      right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-      right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
-      right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
-      right_stepper_us_per_drive = to_start->right_stepper_us_per_drive;
-      right_stepper_limit_skipped_drives = 0;
-      if (drive_immediately) {
-        right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;
-      }
+    unsigned long curr_time_us = micros();
+    if (drive_immediately) {
+      left_stepper_previous_drive_us = curr_time_us - left_stepper_us_per_drive;
+    }
+    left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
+    left_stepper_previous_acceleration_us = curr_time_us;
+  }
+
+  if (to_start->right_stepper_num_drives == 0) {
+    right_stepper_drive_increment = 0;
+    write_stepper_done(RIGHT_STEPPER_ID, 0);
+  }
+  else {
+    right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
+    right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
+    right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
+    right_stepper_us_per_drive = to_start->right_stepper_us_per_drive;
+    right_stepper_limit_skipped_drives = 0;
+    if (drive_immediately) {
+      right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;
     }
   }
 
@@ -309,59 +305,63 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
 
 void loop() {
 
-  /* check whether the cart is moving left, right, up, and down. this calculation is based on the 
-   * following equations:
-   * 
-   * 1) calculate x and y steps from mm travels and steps/mm:
-   * --------------------------------------------------------
-   * x_steps = move_x_mm * steps_per_mm
-   * y_steps = move_y_mm * steps_per_mm
-   * 
-   * 2) using (1), translate x and y steps to stepper motor steps:
-   * -------------------------------------------------------------
-   * left_stepper_steps (lss) = x_steps + y_steps
-   * right_stepper_steps (rss) = x_steps - y_steps
-   * 
-   * 3) using (2), obtain x and y steps in terms of lss and rss:
-   * -----------------------------------------------------------
-   * a) x_steps = lss - y_steps
-   * b) x_steps = rss + y_steps
-   * c) y_steps = lss - x_steps
-   * d) y_steps = x_steps - rss
-   * 
-   * 4) use (3a) and (3d) for x_steps:
-   * ---------------------------------
-   * x_steps = lss - x_steps + rss
-   * 2 * x_steps = lss + rss
-   * x_steps = (lss + rss) / 2
-   * 
-   * a) the gantry will move left when x_steps = (lss + rss) / 2 < 0, or when lss + rss < 0.
-   * b) the gantry will move right when lss + rss > 0.
-   * c) the gantry will remain at its x position when lss + rss = 0. in this case, either
-   * lss and rss are both 0 (steppers do not move), or lss = -rss, in which case the
-   * steppers move equally in opposite directions, which is up/down movement.
-   * 
-   * 5) use (3c) and (3b) for y_steps:
-   * ---------------------------------
-   * y_steps = lss - rss - y_steps
-   * 2 * y_steps = lss - rss
-   * y_steps = (lss - rss) / 2
-   * 
-   * a) the gantry will move down when y_steps = (lss - rss) / 2 < 0, or when lss - rss < 0.
-   * b) the gantry will move up when lss - rss > 0.
-   * c) the gantry will remain at its y position when lss - rss = 0. in this case, either
-   * lss and rss are both 0 (steppers do not move), or lss = rss, in which case the
-   * steppers move equally in the same direction, which is left/right movement.
-   *
-   * 6) note that we take half steps, which means we drive a motor twice per step. for
-   * the purpose of checking left/right and down/up movement, it is equivalent to check
-   * the number of left and right drives that remain.
-   */
-  bool moving_left = false;
-  bool moving_right = false;
-  bool moving_down = false;
-  bool moving_up = false;
-  if (left_stepper_inited && right_stepper_inited) {
+  bool completed_left_stepper = false;
+  bool completed_right_stepper = false;
+
+  if (left_stepper_inited && right_stepper_inited && limit_switches_inited) {
+
+    /* check whether the cart is moving left, right, up, and down. this calculation is 
+     * based on the following equations:
+     * 
+     * 1) calculate x and y steps from mm travels and steps/mm:
+     * --------------------------------------------------------
+     * x_steps = move_x_mm * steps_per_mm
+     * y_steps = move_y_mm * steps_per_mm
+     * 
+     * 2) using (1), translate x and y steps to stepper motor steps:
+     * -------------------------------------------------------------
+     * left_stepper_steps (lss) = x_steps + y_steps
+     * right_stepper_steps (rss) = x_steps - y_steps
+     * 
+     * 3) using (2), obtain x and y steps in terms of lss and rss:
+     * -----------------------------------------------------------
+     * a) x_steps = lss - y_steps
+     * b) x_steps = rss + y_steps
+     * c) y_steps = lss - x_steps
+     * d) y_steps = x_steps - rss
+     * 
+     * 4) use (3a) and (3d) for x_steps:
+     * ---------------------------------
+     * x_steps = lss - x_steps + rss
+     * 2 * x_steps = lss + rss
+     * x_steps = (lss + rss) / 2
+     * 
+     * a) the gantry will move left when x_steps = (lss + rss) / 2 < 0, or when lss + rss < 0.
+     * b) the gantry will move right when lss + rss > 0.
+     * c) the gantry will remain at its x position when lss + rss = 0. in this case, either
+     * lss and rss are both 0 (steppers do not move), or lss = -rss, in which case the
+     * steppers move equally in opposite directions, which is up/down movement.
+     * 
+     * 5) use (3c) and (3b) for y_steps:
+     * ---------------------------------
+     * y_steps = lss - rss - y_steps
+     * 2 * y_steps = lss - rss
+     * y_steps = (lss - rss) / 2
+     * 
+     * a) the gantry will move down when y_steps = (lss - rss) / 2 < 0, or when lss - rss < 0.
+     * b) the gantry will move up when lss - rss > 0.
+     * c) the gantry will remain at its y position when lss - rss = 0. in this case, either
+     * lss and rss are both 0 (steppers do not move), or lss = rss, in which case the
+     * steppers move equally in the same direction, which is left/right movement.
+     *
+     * 6) note that we take half steps, which means we drive a motor twice per step. for
+     * the purpose of checking left/right and down/up movement, it is equivalent to check
+     * the number of left and right drives that remain.
+    */
+    bool moving_left = false;
+    bool moving_right = false;
+    bool moving_down = false;
+    bool moving_up = false;
 
     // calculate left and right drives remaining
     long left_stepper_drives_remaining = left_stepper_drive_target - left_stepper_drive_idx;
@@ -386,79 +386,70 @@ void loop() {
     else if (left_minus_right > 0) {
       moving_up = true;
     }
-  }
 
-  // check whether the gantry has hit a limit and must stop. this is indicated by pressing a limit switch in the direction of travel.
-  bool limited_travel = false;
-  if (limit_switches_inited) {
-    bool left_limit_switch_pressed = !digitalRead(left_limit_switch_pin);
-    bool right_limit_switch_pressed = !digitalRead(right_limit_switch_pin);
-    bool bottom_limit_switch_pressed = !digitalRead(bottom_limit_switch_pin);
-    bool top_limit_switch_pressed = !digitalRead(top_limit_switch_pin);
-    if (
-      (moving_left && left_limit_switch_pressed) ||
-      (moving_right && right_limit_switch_pressed) ||
-      (moving_down && bottom_limit_switch_pressed) ||
-      (moving_up && top_limit_switch_pressed)
-    ) {
-      limited_travel = true;
-    }
-  }
+    /* check whether the gantry has hit a limit and must stop. this is indicated by pressing 
+     * a limit switch in the direction of travel.
+     */
+    bool limited_travel = (
+      (moving_left && !digitalRead(left_limit_switch_pin)) ||
+      (moving_right && !digitalRead(right_limit_switch_pin)) ||
+      (moving_down && !digitalRead(bottom_limit_switch_pin)) ||
+      (moving_up && !digitalRead(top_limit_switch_pin))
+    );
 
-  // accelerate left stepper to target speed limited by maximum acceleration
-  if (left_stepper_us_per_drive > left_stepper_us_per_drive_target) {
-    unsigned long left_stepper_accelerate_us_per_drive = left_stepper_us_per_drive - left_stepper_us_per_drive_target;
-    unsigned long curr_time_us = micros();
-    unsigned long us_since_acceleration = curr_time_us - left_stepper_previous_acceleration_us;
-    unsigned long permissible_acceleration = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
-    if (left_stepper_accelerate_us_per_drive > permissible_acceleration) {
-      left_stepper_accelerate_us_per_drive = permissible_acceleration;
+    // accelerate left stepper to target speed limited by maximum acceleration
+    if (left_stepper_us_per_drive > left_stepper_us_per_drive_target) {
+      unsigned long left_stepper_accelerate_us_per_drive = left_stepper_us_per_drive - left_stepper_us_per_drive_target;
+      unsigned long curr_time_us = micros();
+      unsigned long us_since_acceleration = curr_time_us - left_stepper_previous_acceleration_us;
+      unsigned long permissible_acceleration_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
+      if (left_stepper_accelerate_us_per_drive > permissible_acceleration_us) {
+        left_stepper_accelerate_us_per_drive = permissible_acceleration_us;
+      }
+      if (left_stepper_accelerate_us_per_drive > 0) {
+        left_stepper_us_per_drive -= left_stepper_accelerate_us_per_drive;
+        left_stepper_previous_acceleration_us = curr_time_us;
+      }
     }
-    if (left_stepper_accelerate_us_per_drive > 0) {
-      left_stepper_us_per_drive -= left_stepper_accelerate_us_per_drive;
-      left_stepper_previous_acceleration_us = curr_time_us;
-    }
-  }
-  // allow instantaneous deceleration
-  else {
-    left_stepper_us_per_drive = left_stepper_us_per_drive_target
-  }
-
-  /* drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
-   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
-   * caller when the drive index reaches the target.
-   */
-  bool completed_left_stepper = false;
-  if (left_stepper_inited && (left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
-    left_stepper_drive_idx += left_stepper_drive_increment;
-    if (limited_travel) {
-      left_stepper_limit_skipped_drives += left_stepper_drive_increment;
-    }
+    // allow instantaneous deceleration to the target
     else {
-      drive_left_stepper();
+      left_stepper_us_per_drive = left_stepper_us_per_drive_target;
     }
-    if (left_stepper_drive_idx == left_stepper_drive_target) {
-      write_stepper_done(LEFT_STEPPER_ID, left_stepper_limit_skipped_drives);
-      completed_left_stepper = true;
-    }
-  }
 
-  /* drive the right stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
-   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
-   * caller when the drive index reaches the target.
-   */
-  bool completed_right_stepper = false;
-  if (right_stepper_inited && (right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
-    right_stepper_drive_idx += right_stepper_drive_increment;
-    if (limited_travel) {
-      right_stepper_limit_skipped_drives += right_stepper_drive_increment;
+    /* drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+     * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
+     * caller when the drive index reaches the target.
+    */
+    if ((left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
+      left_stepper_drive_idx += left_stepper_drive_increment;
+      if (limited_travel) {
+        left_stepper_limit_skipped_drives += left_stepper_drive_increment;
+      }
+      else {
+        drive_left_stepper();
+      }
+      if (left_stepper_drive_idx == left_stepper_drive_target) {
+        write_stepper_done(LEFT_STEPPER_ID, left_stepper_limit_skipped_drives);
+        completed_left_stepper = true;
+      }
     }
-    else {
-      drive_right_stepper();
-    }
-    if (right_stepper_drive_idx == right_stepper_drive_target) {
-      write_stepper_done(RIGHT_STEPPER_ID, right_stepper_limit_skipped_drives);
-      completed_right_stepper = true;
+
+    /* drive the right stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
+     * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
+     * caller when the drive index reaches the target.
+    */
+    if ((right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
+      right_stepper_drive_idx += right_stepper_drive_increment;
+      if (limited_travel) {
+        right_stepper_limit_skipped_drives += right_stepper_drive_increment;
+      }
+      else {
+        drive_right_stepper();
+      }
+      if (right_stepper_drive_idx == right_stepper_drive_target) {
+        write_stepper_done(RIGHT_STEPPER_ID, right_stepper_limit_skipped_drives);
+        completed_right_stepper = true;
+      }
     }
   }
 
@@ -569,20 +560,24 @@ void loop() {
     }
   }
 
-  // if both steppers are at their targets, then attempt to start the next step. if neither stepper just completed,
-  // then begin driving the steppers immediately. otherwise, if a stepper just completed, then we'll set the drive 
-  // values but wait the given drive delay to ensure proper stepper timing.
-  if (left_stepper_drive_idx == left_stepper_drive_target && right_stepper_drive_idx == right_stepper_drive_target) {
+  // if both steppers are at their targets, then attempt to start the next step.
+  if (left_stepper_inited && left_stepper_drive_idx == left_stepper_drive_target && right_stepper_inited && right_stepper_drive_idx == right_stepper_drive_target) {
 
     step* next_step = get_next_step();
 
-    // if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
-    // that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
-    // when they resume stepping.
+    /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
+     * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
+     * when they resume stepping.
+    */
     if (next_step == nullptr) {
       left_stepper_us_per_drive = 0;
       left_stepper_us_per_drive_target = 0;
     }
+
+    /* if neither stepper just completed, then begin driving the steppers immediately since we must have just received
+     * a new step command. otherwise, if a stepper just completed, then we'll set the drive values but wait the given 
+     * drive delay to ensure proper stepper timing in relation to the step that just completed.
+    */
     else {
       bool drive_immediately = !completed_left_stepper && !completed_right_stepper;
       start_step(next_step, drive_immediately);
