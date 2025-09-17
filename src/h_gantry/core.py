@@ -6,6 +6,7 @@ from collections import deque
 from datetime import timedelta
 from enum import IntEnum
 from threading import Lock
+from time import time
 from typing import Tuple, List, Optional
 
 import numpy as np
@@ -421,7 +422,8 @@ class HGantry:
         # the stepper identifier and the number of skipped steps due to limiting.
         self.step_async_results_buffer.append((
             self.left_stepper.step(left_stepper_steps, time_to_step),
-            self.right_stepper.step(right_stepper_steps, time_to_step)
+            self.right_stepper.step(right_stepper_steps, time_to_step),
+            time()
         ))
 
         # if the caller wants to block and wait for the current move to complete, then set the maximum buffer length to
@@ -437,14 +439,32 @@ class HGantry:
         succeeded_without_limit = True
         while len(self.step_async_results_buffer) > max_buffer_len:
 
-            # obtain skipped steps for each stepper
+            # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
+            # back in an unpredictable order. however, the result tuples have the stepper identifier as the first
+            # element, so we can sort on that to obtain known results.
+            get_result_1, get_result_2, start_time = self.step_async_results_buffer.popleft()
             left_stepper_skipped_steps, right_stepper_skipped_steps = [
                 skipped_steps
-                for _, skipped_steps in sorted([  # tuples have stepper id as the first element
-                    get_result()
-                    for get_result in self.step_async_results_buffer.popleft()
-                ])
+                for _, skipped_steps in sorted([get_result_1(), get_result_2()])
             ]
+            end_time = time()
+            elapsed_seconds = end_time - start_time
+
+            # update stepper states
+            left_stepper_state: Stepper.State = self.left_stepper.state
+            super(Stepper, self.left_stepper).set_state(
+                Stepper.State(
+                    left_stepper_state.step + left_stepper_steps - left_stepper_skipped_steps,
+                    timedelta(seconds=elapsed_seconds)
+                )
+            )
+            right_stepper_state: Stepper.State = self.right_stepper.state
+            super(Stepper, self.right_stepper).set_state(
+                Stepper.State(
+                    right_stepper_state.step + right_stepper_steps - right_stepper_skipped_steps,
+                    timedelta(seconds=elapsed_seconds)
+                )
+            )
 
             # calculate skipped distances from skipped steps
             skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(

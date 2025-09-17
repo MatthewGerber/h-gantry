@@ -1,6 +1,9 @@
 const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
-const unsigned long US_PER_SEC = 10e6;  // microseconds per second
+const unsigned long US_PER_SEC = 1e6;  // microseconds per second
+
+// SerialUSB writes to the arduino IDE serial monitor; _UART1_ writes to serial tx/rx
+#define SerialUART _UART1_
 
 // structure that gives simultaneous access to floating-point numbers and their underlying bytes.
 typedef union {
@@ -22,8 +25,8 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 10e3;  // fastest driving:  1 drive per ms
-const unsigned long MAX_US_PER_DRIVE = 2 * US_PER_SEC;  // slowest driving:  1 drive per 2 seconds
+const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
+const unsigned long MAX_US_PER_DRIVE = 1500;  // slowest driving
 const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / float(US_PER_SEC);  // maximum acceleration:  slowest to fastest within 1 second
 
 // left stepper
@@ -54,6 +57,8 @@ int right_stepper_drive_increment;
 long right_stepper_limit_skipped_drives;
 unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
+unsigned long right_stepper_us_per_drive_target;
+unsigned long right_stepper_previous_acceleration_us;
 bool right_stepper_inited = false;
 
 // linked list of steps to take, acting as a read buffer. each step determines how the
@@ -130,17 +135,24 @@ void start_step(step* to_start, bool drive_immediately) {
 
   if (to_start->right_stepper_num_drives == 0) {
     right_stepper_drive_increment = 0;
+    right_stepper_us_per_drive = 0;
+    right_stepper_us_per_drive_target = 0;
     write_stepper_done(RIGHT_STEPPER_ID, 0);
   }
   else {
     right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
-    right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
     right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
-    right_stepper_us_per_drive = to_start->right_stepper_us_per_drive;
+    right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
     right_stepper_limit_skipped_drives = 0;
-    if (drive_immediately) {
-      right_stepper_previous_drive_us = micros() - right_stepper_us_per_drive;
+    if (right_stepper_us_per_drive == 0) {
+      right_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
+    unsigned long curr_time_us = micros();
+    if (drive_immediately) {
+      right_stepper_previous_drive_us = curr_time_us - right_stepper_us_per_drive;
+    }
+    right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
+    right_stepper_previous_acceleration_us = curr_time_us;
   }
 
 }
@@ -167,14 +179,6 @@ const byte CMD_STEP_ARGS_LEN = 12;
 
 // command:  stop
 const byte CMD_STOP = 3;
-
-// SerialUSB writes to the arduino IDE serial monitor; _UART1_ writes to serial tx/rx
-#define SerialUART _UART1_
-
-void setup() {
-  // SerialUSB.begin(9600);
-  SerialUART.begin(115200, SERIAL_8N1);
-}
 
 void long_to_bytes(long value, byte bytes[]) {
   bytes[0] = (byte)(value >> 24);
@@ -303,11 +307,17 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     SerialUART.flush();
   }
 
+void setup() {
+  // SerialUSB.begin(9600);
+  SerialUART.begin(115200, SERIAL_8N1);
+}
+
 void loop() {
 
   bool completed_left_stepper = false;
   bool completed_right_stepper = false;
 
+  // process the current step command if everything is initialized
   if (left_stepper_inited && right_stepper_inited && limit_switches_inited) {
 
     /* check whether the cart is moving left, right, up, and down. this calculation is 
@@ -416,6 +426,25 @@ void loop() {
       left_stepper_us_per_drive = left_stepper_us_per_drive_target;
     }
 
+    // accelerate right stepper to target speed limited by maximum acceleration
+    if (right_stepper_us_per_drive > right_stepper_us_per_drive_target) {
+      unsigned long right_stepper_accelerate_us_per_drive = right_stepper_us_per_drive - right_stepper_us_per_drive_target;
+      unsigned long curr_time_us = micros();
+      unsigned long us_since_acceleration = curr_time_us - right_stepper_previous_acceleration_us;
+      unsigned long permissible_acceleration_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
+      if (right_stepper_accelerate_us_per_drive > permissible_acceleration_us) {
+        right_stepper_accelerate_us_per_drive = permissible_acceleration_us;
+      }
+      if (right_stepper_accelerate_us_per_drive > 0) {
+        right_stepper_us_per_drive -= right_stepper_accelerate_us_per_drive;
+        right_stepper_previous_acceleration_us = curr_time_us;
+      }
+    }
+    // allow instantaneous deceleration to the target
+    else {
+      right_stepper_us_per_drive = right_stepper_us_per_drive_target;
+    }
+
     /* drive the left stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
      * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
      * caller when the drive index reaches the target.
@@ -498,6 +527,7 @@ void loop() {
         right_stepper_drive_target = right_stepper_drive_idx;
         right_stepper_drive_increment = 0;
         right_stepper_us_per_drive = 0;
+        right_stepper_us_per_drive_target = 0;
         drive_right_stepper();
         right_stepper_inited = true;
         write_bool(true);
@@ -572,6 +602,8 @@ void loop() {
     if (next_step == nullptr) {
       left_stepper_us_per_drive = 0;
       left_stepper_us_per_drive_target = 0;
+      right_stepper_us_per_drive = 0;
+      right_stepper_us_per_drive_target = 0;
     }
 
     /* if neither stepper just completed, then begin driving the steppers immediately since we must have just received
