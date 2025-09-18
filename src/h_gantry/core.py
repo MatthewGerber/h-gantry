@@ -419,7 +419,7 @@ class HGantry:
         )
 
         # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
-        # the stepper identifier and the number of skipped steps due to limiting.
+        # a stepper identifier and the number of skipped steps due to limiting.
         self.step_async_results_buffer.append((
             self.left_stepper.step(left_stepper_steps, time_to_step),
             self.right_stepper.step(right_stepper_steps, time_to_step),
@@ -441,35 +441,43 @@ class HGantry:
 
             # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
             # back in an unpredictable order. however, the result tuples have the stepper identifier as the first
-            # element, so we can sort on that to obtain known results.
+            # element, so we can key on that to obtain the result for each stepper.
             get_result_1, get_result_2, start_time = self.step_async_results_buffer.popleft()
-            left_stepper_skipped_steps, right_stepper_skipped_steps = [
-                skipped_steps
-                for _, skipped_steps in sorted([get_result_1(), get_result_2()])
-            ]
+            stepper_id_skipped_steps = {
+                stepper_id: skipped_steps
+                for stepper_id, skipped_steps in [get_result_1(), get_result_2()]
+            }
             end_time = time()
             elapsed_seconds = end_time - start_time
 
-            # update stepper states
+            # update stepper states now that we have results
             left_stepper_state: Stepper.State = self.left_stepper.state
             super(Stepper, self.left_stepper).set_state(
                 Stepper.State(
-                    left_stepper_state.step + left_stepper_steps - left_stepper_skipped_steps,
+                    (
+                        left_stepper_state.step +
+                        left_stepper_steps -
+                        stepper_id_skipped_steps[self.left_driver.identifier]
+                    ),
                     timedelta(seconds=elapsed_seconds)
                 )
             )
             right_stepper_state: Stepper.State = self.right_stepper.state
             super(Stepper, self.right_stepper).set_state(
                 Stepper.State(
-                    right_stepper_state.step + right_stepper_steps - right_stepper_skipped_steps,
+                    (
+                        right_stepper_state.step +
+                        right_stepper_steps -
+                        stepper_id_skipped_steps[self.right_driver.identifier]
+                    ),
                     timedelta(seconds=elapsed_seconds)
                 )
             )
 
             # calculate skipped distances from skipped steps
             skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
-                left_stepper_skipped_steps,
-                right_stepper_skipped_steps
+                stepper_id_skipped_steps[self.left_driver.identifier],
+                stepper_id_skipped_steps[self.right_driver.identifier]
             )
 
             # advance x and y positions, minus any skipped movement due to limit switches.

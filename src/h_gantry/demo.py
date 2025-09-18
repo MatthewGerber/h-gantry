@@ -79,7 +79,9 @@ def main():
 
     gantry.start()
     gantry.calibrate(100.0)
+    left_stepper.event(lambda s: print(f'left stepper state:  {s}'))
     gantry.move_to_offset(10.0, 0.0, 100.0, True)
+    left_stepper.events.clear()
     gantry.move_to_offset(-20.0, 0.0, 100.0, True)
     gantry.center(100.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
