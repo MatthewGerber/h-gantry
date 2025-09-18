@@ -7,7 +7,7 @@ from datetime import timedelta
 from enum import IntEnum
 from threading import Lock
 from time import time
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Callable
 
 import numpy as np
 from smbus2 import SMBus
@@ -144,7 +144,7 @@ class HGantry:
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
 
-        self.step_async_results_buffer = deque()
+        self.step_async_results_buffer: deque[Tuple[Callable, Callable, float]] = deque()
         self.step_async_results_buffer_max_len = 3
 
     def joystick_move(
@@ -557,7 +557,7 @@ class HGantry:
             y_offset_mm: float,
             mm_per_sec: float,
             block: bool
-    ) -> bool:
+    ) -> Optional[bool]:
         """
         Move to an offset from the current position.
 
@@ -566,7 +566,7 @@ class HGantry:
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
-        achieved.
+        achieved. Will be None if the move was buffered and not completed.
         """
 
         return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec, block)
