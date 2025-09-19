@@ -25,7 +25,7 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
+const unsigned long MIN_US_PER_DRIVE = 750;  // fastest driving
 const unsigned long MAX_US_PER_DRIVE = 1500;  // slowest driving
 const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / float(US_PER_SEC);  // maximum acceleration:  slowest to fastest within 1 second
 
@@ -111,6 +111,8 @@ step* get_next_step() {
 
 void start_step(step* to_start, bool drive_immediately) {
 
+  unsigned long curr_time_us = micros();
+
   if (to_start->left_stepper_num_drives == 0) {
     left_stepper_drive_increment = 0;
     left_stepper_us_per_drive = 0;
@@ -125,7 +127,6 @@ void start_step(step* to_start, bool drive_immediately) {
     if (left_stepper_us_per_drive == 0) {
       left_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
-    unsigned long curr_time_us = micros();
     if (drive_immediately) {
       left_stepper_previous_drive_us = curr_time_us - left_stepper_us_per_drive;
     }
@@ -147,7 +148,6 @@ void start_step(step* to_start, bool drive_immediately) {
     if (right_stepper_us_per_drive == 0) {
       right_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
-    unsigned long curr_time_us = micros();
     if (drive_immediately) {
       right_stepper_previous_drive_us = curr_time_us - right_stepper_us_per_drive;
     }
@@ -267,13 +267,13 @@ byte mod(long x, byte y) {
   return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
 
-void drive_left_stepper() {
+void drive_left_stepper(unsigned long curr_time_us) {
   byte drive_sequence_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
   digitalWrite(left_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
   digitalWrite(left_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
   digitalWrite(left_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
   digitalWrite(left_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-  left_stepper_previous_drive_us = micros();
+  left_stepper_previous_drive_us = curr_time_us;
 }
 
 void stop_left_stepper() {
@@ -283,13 +283,13 @@ void stop_left_stepper() {
   digitalWrite(left_driver_pin_4, LOW);
 }
 
-void drive_right_stepper() {
+void drive_right_stepper(unsigned long curr_time_us) {
   byte drive_sequence_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
   digitalWrite(right_driver_pin_1, DRIVE_SEQUENCE[drive_sequence_idx][0]);
   digitalWrite(right_driver_pin_2, DRIVE_SEQUENCE[drive_sequence_idx][1]);
   digitalWrite(right_driver_pin_3, DRIVE_SEQUENCE[drive_sequence_idx][2]);
   digitalWrite(right_driver_pin_4, DRIVE_SEQUENCE[drive_sequence_idx][3]);
-  right_stepper_previous_drive_us = micros();
+  right_stepper_previous_drive_us = curr_time_us;
 }
 
 void stop_right_stepper() {
@@ -313,6 +313,8 @@ void setup() {
 }
 
 void loop() {
+
+  unsigned long curr_time_us = micros();
 
   bool completed_left_stepper = false;
   bool completed_right_stepper = false;
@@ -410,7 +412,6 @@ void loop() {
     // accelerate left stepper to target speed limited by maximum acceleration
     if (left_stepper_us_per_drive > left_stepper_us_per_drive_target) {
       unsigned long left_stepper_accelerate_us_per_drive = left_stepper_us_per_drive - left_stepper_us_per_drive_target;
-      unsigned long curr_time_us = micros();
       unsigned long us_since_acceleration = curr_time_us - left_stepper_previous_acceleration_us;
       unsigned long permissible_acceleration_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
       if (left_stepper_accelerate_us_per_drive > permissible_acceleration_us) {
@@ -429,7 +430,6 @@ void loop() {
     // accelerate right stepper to target speed limited by maximum acceleration
     if (right_stepper_us_per_drive > right_stepper_us_per_drive_target) {
       unsigned long right_stepper_accelerate_us_per_drive = right_stepper_us_per_drive - right_stepper_us_per_drive_target;
-      unsigned long curr_time_us = micros();
       unsigned long us_since_acceleration = curr_time_us - right_stepper_previous_acceleration_us;
       unsigned long permissible_acceleration_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
       if (right_stepper_accelerate_us_per_drive > permissible_acceleration_us) {
@@ -449,13 +449,13 @@ void loop() {
      * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
      * caller when the drive index reaches the target.
     */
-    if ((left_stepper_drive_idx != left_stepper_drive_target) && ((micros() - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
+    if ((left_stepper_drive_idx != left_stepper_drive_target) && ((curr_time_us - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
       left_stepper_drive_idx += left_stepper_drive_increment;
       if (limited_travel) {
         left_stepper_limit_skipped_drives += left_stepper_drive_increment;
       }
       else {
-        drive_left_stepper();
+        drive_left_stepper(curr_time_us);
       }
       if (left_stepper_drive_idx == left_stepper_drive_target) {
         write_stepper_done(LEFT_STEPPER_ID, left_stepper_limit_skipped_drives);
@@ -467,13 +467,13 @@ void loop() {
      * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
      * caller when the drive index reaches the target.
     */
-    if ((right_stepper_drive_idx != right_stepper_drive_target) && ((micros() - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
+    if ((right_stepper_drive_idx != right_stepper_drive_target) && ((curr_time_us - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
       right_stepper_drive_idx += right_stepper_drive_increment;
       if (limited_travel) {
         right_stepper_limit_skipped_drives += right_stepper_drive_increment;
       }
       else {
-        drive_right_stepper();
+        drive_right_stepper(curr_time_us);
       }
       if (right_stepper_drive_idx == right_stepper_drive_target) {
         write_stepper_done(RIGHT_STEPPER_ID, right_stepper_limit_skipped_drives);
@@ -508,7 +508,7 @@ void loop() {
         left_stepper_drive_increment = 0;
         left_stepper_us_per_drive = 0;
         left_stepper_us_per_drive_target = 0;
-        drive_left_stepper();
+        drive_left_stepper(curr_time_us);
         left_stepper_inited = true;
         write_bool(true);
       }
@@ -528,7 +528,7 @@ void loop() {
         right_stepper_drive_increment = 0;
         right_stepper_us_per_drive = 0;
         right_stepper_us_per_drive_target = 0;
-        drive_right_stepper();
+        drive_right_stepper(curr_time_us);
         right_stepper_inited = true;
         write_bool(true);
       }
