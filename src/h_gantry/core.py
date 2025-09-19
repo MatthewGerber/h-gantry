@@ -6,7 +6,7 @@ from collections import deque
 from datetime import timedelta
 from enum import IntEnum
 from threading import Lock
-from time import time
+from time import time, sleep
 from typing import Tuple, List, Optional, Callable
 
 import numpy as np
@@ -159,7 +159,7 @@ class HGantry:
 
         # center on joystick press
         if joystick_state.z:
-            self.center(100.0)
+            self.center(100.0, True)
 
         # ignore negligible joystick movements and noise
         elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 2.0:
@@ -227,7 +227,7 @@ class HGantry:
         """
 
         # process the buffer to obtain current x/y position
-        self.move_to_offset(0.0, 0.0, 10.0, True)
+        self.clear_async_results_buffer()
 
         self.joystick.stop_updating_state()
         self.adc.close()
@@ -261,18 +261,17 @@ class HGantry:
 
     def center(
             self,
-            mm_per_sec: float
+            mm_per_sec: float,
+            block: bool
     ):
         """
         Center the gantry.
 
         :param mm_per_sec: Speed.
+        :param block: Whether to block until the movement is complete.
         """
 
-        if self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, True):
-            pass
-        else:
-            raise ValueError('Centering should never hit a limit switch.')
+        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block)
 
     def move_to_left_limit(
             self,
@@ -284,8 +283,7 @@ class HGantry:
         :param mm_per_sec: speed.
         """
 
-        while self.move_to_point(self.x - 100.0, self.y, mm_per_sec, True):
-            pass
+        self.move_to_offset_limit(-10.0, 0.0, mm_per_sec)
 
     def move_to_right_limit(
             self,
@@ -297,8 +295,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x + 100.0, self.y, mm_per_sec, True):
-            pass
+        self.move_to_offset_limit(10.0, 0.0, mm_per_sec)
 
     def move_to_bottom_limit(
             self,
@@ -310,8 +307,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y - 100.0, mm_per_sec, True):
-            pass
+        self.move_to_offset_limit(0.0, -10.0, mm_per_sec)
 
     def move_to_top_limit(
             self,
@@ -323,8 +319,7 @@ class HGantry:
         :param mm_per_sec: Speed.
         """
 
-        while self.move_to_point(self.x, self.y + 100.0, mm_per_sec, True):
-            pass
+        self.move_to_offset_limit(0.0, 10.0, mm_per_sec)
 
     def calibrate(
             self,
@@ -380,7 +375,7 @@ class HGantry:
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
-        achieved. Will be None if the move was buffered and not completed.
+        achieved. Will be None if the move was buffered and no other moves were processed.
         """
 
         self.move_to_point_lock.acquire()
@@ -435,8 +430,9 @@ class HGantry:
         else:
             max_buffer_len = self.step_async_results_buffer_max_len
 
+        succeeded_without_limit = None
+
         # process the buffer until it's within the max length
-        succeeded_without_limit = True
         while len(self.step_async_results_buffer) > max_buffer_len:
 
             # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
@@ -454,7 +450,7 @@ class HGantry:
             left_stepper_state: Stepper.State = self.left_stepper.state
             super(Stepper, self.left_stepper).set_state(
                 Stepper.State(
-                    (
+                    round(
                         left_stepper_state.step +
                         left_stepper_steps -
                         stepper_id_skipped_steps[self.left_driver.identifier]
@@ -465,7 +461,7 @@ class HGantry:
             right_stepper_state: Stepper.State = self.right_stepper.state
             super(Stepper, self.right_stepper).set_state(
                 Stepper.State(
-                    (
+                    round(
                         right_stepper_state.step +
                         right_stepper_steps -
                         stepper_id_skipped_steps[self.right_driver.identifier]
@@ -484,21 +480,24 @@ class HGantry:
             self.x += move_x_mm - skipped_x_mm
             self.y += move_y_mm - skipped_y_mm
 
-            if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
-                succeeded_without_limit = False
-
-        # if the buffer is empty, then all movements were processed and the success-without-limit indicator is valid for
-        # the current call.
-        if len(self.step_async_results_buffer) == 0:
-            return_value = succeeded_without_limit
-
-        # otherwise, the current move was buffered, and the return value is not defined.
-        else:
-            return_value = None
+            succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
 
         self.move_to_point_lock.release()
 
-        return return_value
+        return succeeded_without_limit
+
+    def clear_async_results_buffer(
+            self
+    ) -> bool:
+        """
+        Clear the results buffer. Does not move the gantry beyond the moves currently in the buffer. Blocks until all
+        moves are complete.
+
+        :return: True if the buffer was cleared without hitting a limit switch; False if limit switch was hit by the
+        final move.
+        """
+
+        return self.move_to_offset(0.0, 0.0, 1.0, True)
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -570,6 +569,29 @@ class HGantry:
         """
 
         return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec, block)
+
+    def move_to_offset_limit(
+            self,
+            x_offset_mm: float,
+            y_offset_mm: float,
+            mm_per_sec: float
+    ):
+        """
+        Move to a limit in a given offset direction.
+
+        :param x_offset_mm: X offset.
+        :param y_offset_mm: Y offset.
+        :param mm_per_sec: Speed in mm per second.
+        """
+
+        # pump moves into the buffer until we get one back that indicates a limit switch was hit
+        move_distance_mm = math.sqrt(x_offset_mm ** 2 + y_offset_mm ** 2)
+        move_time_seconds = move_distance_mm / mm_per_sec
+        sleep_time_seconds = move_time_seconds / 2.0
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, False) != False:
+            sleep(sleep_time_seconds)
+        else:
+            self.clear_async_results_buffer()
 
 
 def generate_circle_points(
