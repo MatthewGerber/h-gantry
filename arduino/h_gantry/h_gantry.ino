@@ -25,8 +25,8 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { LOW, LOW, LOW, HIGH },
   { HIGH, LOW, LOW, HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 750;  // fastest driving
-const unsigned long MAX_US_PER_DRIVE = 1500;  // slowest driving
+const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving
+const unsigned long MAX_US_PER_DRIVE = 1750;  // slowest driving
 const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / float(US_PER_SEC);  // maximum acceleration:  slowest to fastest within 1 second
 
 // left stepper
@@ -72,6 +72,7 @@ struct step {
 };
 step* steps_head = nullptr;
 step* steps_tail = nullptr;
+unsigned int steps_len = 0;
 
 // add a new step to the buffer
 void add_step(
@@ -93,7 +94,11 @@ void add_step(
   }
   else {
     steps_tail->next = new_step;
+    steps_tail = new_step;
   }
+
+  steps_len += 1;
+  SerialUSB.println("Added new step. left=" + String(left_stepper_num_drives) + ", right=" + String(right_stepper_num_drives) + ". Num steps:  " + String(steps_len));
 
 }
 
@@ -105,11 +110,13 @@ step* get_next_step() {
     if (steps_head == nullptr) {
       steps_tail = nullptr;
     }
+    steps_len -=1;
+    SerialUSB.println("Returning the next step to start. " + String(steps_len) + " steps remain.");
   }
   return next_step;
 }
 
-void start_step(step* to_start, bool drive_immediately) {
+void start_step(step* to_start, bool drive_left_immediately, bool drive_right_immediately) {
 
   unsigned long curr_time_us = micros();
 
@@ -127,7 +134,7 @@ void start_step(step* to_start, bool drive_immediately) {
     if (left_stepper_us_per_drive == 0) {
       left_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
-    if (drive_immediately) {
+    if (drive_left_immediately) {
       left_stepper_previous_drive_us = curr_time_us - left_stepper_us_per_drive;
     }
     left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
@@ -148,7 +155,7 @@ void start_step(step* to_start, bool drive_immediately) {
     if (right_stepper_us_per_drive == 0) {
       right_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
-    if (drive_immediately) {
+    if (drive_right_immediately) {
       right_stepper_previous_drive_us = curr_time_us - right_stepper_us_per_drive;
     }
     right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
@@ -304,11 +311,11 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
-    SerialUART.flush();
+    SerialUSB.println("Stepper done:  " + String(stepper_id) + "; num steps:  " + steps_len);
   }
 
 void setup() {
-  // SerialUSB.begin(9600);
+  SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 }
 
@@ -606,13 +613,12 @@ void loop() {
       right_stepper_us_per_drive_target = 0;
     }
 
-    /* if neither stepper just completed, then begin driving the steppers immediately since we must have just received
-     * a new step command. otherwise, if a stepper just completed, then we'll set the drive values but wait the given 
-     * drive delay to ensure proper stepper timing in relation to the step that just completed.
+    /* if the stepper just completed, then we'll set the drive values but wait the given drive delay to ensure proper 
+     * stepper timing in relation to the step that just completed. if the stepper did not just complete, then begin 
+     * driving the steppers immediately since we must have just received a new step command.
     */
     else {
-      bool drive_immediately = !completed_left_stepper && !completed_right_stepper;
-      start_step(next_step, drive_immediately);
+      start_step(next_step, !completed_left_stepper, !completed_right_stepper);
     }
   }
 }
