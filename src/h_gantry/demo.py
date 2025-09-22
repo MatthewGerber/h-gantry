@@ -48,7 +48,6 @@ def main():
         ),
         reverse=False
     )
-    # left_stepper.event(lambda s: print(f'left stepper state:  {s}'))
 
     right_stepper = Stepper(
         poles=poles,
@@ -64,7 +63,6 @@ def main():
         ),
         reverse=False
     )
-    # right_stepper.event(lambda s: print(f'right stepper state:  {s}'))
 
     gantry = HGantry(
         joystick_z_pin=CkPin.GPIO17,
@@ -80,13 +78,13 @@ def main():
     )
 
     gantry.start()
-    gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    # gantry.move_to_bottom_limit(100.0)
-    # gantry.calibrate(100.0)
-    # gantry.center(100.0, True)
+    # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
+    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
+    # gantry.move_to_offset(0.0, 0.0, 1.0, True)
+    gantry.calibrate(100.0)
+    gantry.center(100.0, True)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
     # gantry.move_to_points(circle_points, 100.0, True)
     # for i in range(30):

@@ -96,10 +96,7 @@ void add_step(
     steps_tail->next = new_step;
     steps_tail = new_step;
   }
-
   steps_len += 1;
-  SerialUSB.println("Added new step. left=" + String(left_stepper_num_drives) + ", right=" + String(right_stepper_num_drives) + ". Num steps:  " + String(steps_len));
-
 }
 
 // get the next step from the buffer
@@ -111,7 +108,6 @@ step* get_next_step() {
       steps_tail = nullptr;
     }
     steps_len -=1;
-    SerialUSB.println("Returning the next step to start. " + String(steps_len) + " steps remain.");
   }
   return next_step;
 }
@@ -311,11 +307,10 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
-    SerialUSB.println("Stepper done:  " + String(stepper_id) + "; num steps:  " + steps_len);
   }
 
 void setup() {
-  SerialUSB.begin(9600);
+  // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 }
 

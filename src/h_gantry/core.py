@@ -145,7 +145,7 @@ class HGantry:
         self.joystick_update_interval_seconds = 0.01
 
         self.step_async_results_buffer: deque[Tuple[Callable, Callable, float]] = deque()
-        self.step_async_results_buffer_max_len = 3
+        self.step_async_results_buffer_max_len = 5
 
     def joystick_move(
             self,
@@ -432,8 +432,6 @@ class HGantry:
 
         succeeded_without_limit = None
 
-        print(f'Buffer len:  {len(self.step_async_results_buffer)}')
-
         # process the buffer until it's within the max length
         while len(self.step_async_results_buffer) > max_buffer_len:
 
@@ -484,8 +482,6 @@ class HGantry:
 
             succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
 
-            print(f'Buffer len:  {len(self.step_async_results_buffer)}')
-
         self.move_to_point_lock.release()
 
         return succeeded_without_limit
@@ -501,7 +497,6 @@ class HGantry:
         final move.
         """
 
-        print('Clearing results buffer with 0,0 move.')
         return self.move_to_offset(0.0, 0.0, 1.0, True)
 
     def get_x_mm_y_mm_from_steps(
