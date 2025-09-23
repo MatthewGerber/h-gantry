@@ -76,6 +76,7 @@ def main():
         timing_pulley_dia_mm=12.97,
         state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
     )
+    gantry.event(lambda s: print(f'Gantry position:  {s}'))
 
     gantry.start()
     # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
@@ -85,7 +86,7 @@ def main():
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
     gantry.calibrate(100.0)
     gantry.center(100.0, True)
-    # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 1.0)
+    # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 100.0, True)
     # for i in range(30):
     #     gantry.joystick.update_state()

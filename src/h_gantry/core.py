@@ -12,17 +12,64 @@ from typing import Tuple, List, Optional, Callable
 import numpy as np
 from smbus2 import SMBus
 
-from raspberry_py.gpio import CkPin
+from raspberry_py.gpio import CkPin, Component
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 
 
-class HGantry:
+class HGantry(Component):
     """
     Control for a two-axis gantry using two fixed-position stepper motors.
     """
+
+    class State(Component.State):
+        """
+        Gantry state.
+        """
+
+        def __init__(
+                self,
+                x: float,
+                y: float
+        ):
+            """
+            Initialize state.
+
+            :param x: X position.
+            :param y: Y position.
+            """
+
+            self.x = x
+            self.y = y
+
+        def __eq__(
+                self,
+                other: object
+        ) -> bool:
+            """
+            Check equality with another state.
+
+            :param other: State.
+            :return: True if equal and False otherwise.
+            """
+
+            if not isinstance(other, HGantry.State):
+                raise ValueError(f'Expected a {HGantry.State}')
+
+            return self.x == other.x and self.y == other.y
+
+        def __str__(
+                self
+        ) -> str:
+            """
+            Get string.
+
+            :return: String.
+            """
+
+            return f'x={self.x:.3f}, y={self.y:.3f}'
 
     class Command(IntEnum):
         """
@@ -111,6 +158,8 @@ class HGantry:
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
+        super().__init__(HGantry.State(self.x, self.y))
+
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
         # and joystick report synchronous events that land at move_to_point, which uses a lock to limit step commands
@@ -144,7 +193,7 @@ class HGantry:
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
 
-        self.step_async_results_buffer: deque[Tuple[Callable, Callable, float]] = deque()
+        self.step_async_results_buffer: deque[Tuple[float, float, int, Callable, int, Callable, float]] = deque()
         self.step_async_results_buffer_max_len = 5
 
     def joystick_move(
@@ -416,7 +465,11 @@ class HGantry:
         # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
         # a stepper identifier and the number of skipped steps due to limiting.
         self.step_async_results_buffer.append((
+            move_x_mm,
+            move_y_mm,
+            left_stepper_steps,
             self.left_stepper.step(left_stepper_steps, time_to_step),
+            right_stepper_steps,
             self.right_stepper.step(right_stepper_steps, time_to_step),
             time()
         ))
@@ -438,7 +491,15 @@ class HGantry:
             # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
             # back in an unpredictable order. however, the result tuples have the stepper identifier as the first
             # element, so we can key on that to obtain the result for each stepper.
-            get_result_1, get_result_2, start_time = self.step_async_results_buffer.popleft()
+            (
+                result_move_x_mm,
+                result_move_y_mm,
+                result_left_stepper_steps,
+                get_result_1,
+                result_right_stepper_steps,
+                get_result_2,
+                start_time
+            ) = self.step_async_results_buffer.popleft()
             stepper_id_skipped_steps = {
                 stepper_id: skipped_steps
                 for stepper_id, skipped_steps in [get_result_1(), get_result_2()]
@@ -452,7 +513,7 @@ class HGantry:
                 Stepper.State(
                     round(
                         left_stepper_state.step +
-                        left_stepper_steps -
+                        result_left_stepper_steps -
                         stepper_id_skipped_steps[self.left_driver.identifier]
                     ),
                     timedelta(seconds=elapsed_seconds)
@@ -463,7 +524,7 @@ class HGantry:
                 Stepper.State(
                     round(
                         right_stepper_state.step +
-                        right_stepper_steps -
+                        result_right_stepper_steps -
                         stepper_id_skipped_steps[self.right_driver.identifier]
                     ),
                     timedelta(seconds=elapsed_seconds)
@@ -477,8 +538,10 @@ class HGantry:
             )
 
             # advance x and y positions, minus any skipped movement due to limit switches.
-            self.x += move_x_mm - skipped_x_mm
-            self.y += move_y_mm - skipped_y_mm
+            self.x += result_move_x_mm - skipped_x_mm
+            self.y += result_move_y_mm - skipped_y_mm
+
+            self.set_state(HGantry.State(self.x, self.y))
 
             succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
 
@@ -548,7 +611,7 @@ class HGantry:
             points.append((self.x, self.y))
 
         for x, y in points:
-            self.move_to_point(x, y, mm_per_sec, False)
+            self.move_to_point(x, y, mm_per_sec, True)
 
     def move_to_offset(
             self,

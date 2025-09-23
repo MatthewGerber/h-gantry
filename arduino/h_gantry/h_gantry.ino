@@ -307,6 +307,7 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
+    SerialUART.flush();
   }
 
 void setup() {
