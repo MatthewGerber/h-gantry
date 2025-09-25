@@ -1,6 +1,5 @@
 import logging
 import os.path
-import time
 
 import numpy as np
 import serial
@@ -78,7 +77,7 @@ def main():
         timing_pulley_dia_mm=12.97,
         state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
     )
-    gantry.event(lambda s: print(f'Gantry position:  {s}'))
+    gantry.event(lambda s: logging.info(f'Gantry position:  {s}'))
 
     gantry.start()
     # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
@@ -87,7 +86,7 @@ def main():
     # gantry.move_to_offset(0.0, -10.0, 100.0, False)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
     # gantry.calibrate(100.0)
-    # gantry.center(100.0, True)
+    # gantry.center(100.0, True, True)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 100.0, True)
     # for i in range(30):
@@ -99,8 +98,24 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-
-    gantry.trace_spyrograph(g, 100.0, True)
+    g = Hypotrochoid(
+        R=350,
+        r=200,
+        d=100,
+        thetas=np.arange(0, 5 * np.pi, 0.05).tolist()
+    )
+    g.plot(marker='.')
+    g = g.scale(0.1)
+    result_g = gantry.trace_spyrograph(
+        g,
+        (gantry.x, gantry.y),
+        100.0,
+        True,
+        True,
+        True
+    )
+    result_g.plot(marker='.')
+    gantry.clear_async_results_buffer()
 
     gantry.stop(True)
 
@@ -109,11 +124,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    g = Hypotrochoid(
-        R=300,
-        r=200,
-        d=100,
-        thetas=np.arange(0, 2 * np.pi, .1).tolist()
-    )
-    g.plot()
+    main()

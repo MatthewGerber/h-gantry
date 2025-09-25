@@ -11,7 +11,7 @@ from typing import Tuple, List, Optional, Callable
 
 import numpy as np
 from smbus2 import SMBus
-from spyrograph import Hypotrochoid
+# noinspection PyProtectedMember
 from spyrograph.core._trochoid import _Trochoid
 
 from raspberry_py.gpio import CkPin, Component
@@ -210,7 +210,7 @@ class HGantry(Component):
 
         # center on joystick press
         if joystick_state.z:
-            self.center(100.0, True)
+            self.center(100.0, True, True)
 
         # ignore negligible joystick movements and noise
         elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 2.0:
@@ -225,10 +225,11 @@ class HGantry(Component):
                         move_x_mm,
                         move_y_mm,
                         HGantry.get_speed_from_joystick_state(joystick_state),
-                        False
+                        False,
+                        True
                     )
                 except ValueError as e:
-                    print(f'Failed to move according to joystick:  {e}')
+                    logging.error(f'Failed to move according to joystick:  {e}')
 
     @staticmethod
     def get_speed_from_joystick_state(
@@ -313,16 +314,18 @@ class HGantry(Component):
     def center(
             self,
             mm_per_sec: float,
-            block: bool
+            block: bool,
+            check_bounds: bool
     ):
         """
         Center the gantry.
 
         :param mm_per_sec: Speed.
         :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         """
 
-        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block)
+        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block, check_bounds)
 
     def move_to_left_limit(
             self,
@@ -411,12 +414,30 @@ class HGantry(Component):
 
         return x - self.x, y - self.y
 
+    def assert_point_in_bounds(
+            self,
+            x: float,
+            y: float
+    ):
+        """
+        Assert that a point is in bounds.
+
+        :param x: X.
+        :param y: Y.
+        """
+
+        if not (0.0 <= x <= self.left_right_mm and 0.0 <= y <= self.bottom_top_mm):
+            raise ValueError(
+                f'Point ({x}, {y}) is out of bounds (0.0, {self.left_right_mm}), (0.0, {self.bottom_top_mm})'
+            )
+
     def move_to_point(
             self,
             x: float,
             y: float,
             mm_per_sec: float,
-            block: bool
+            block: bool,
+            check_bounds: bool
     ) -> Optional[bool]:
         """
         Move to a point.
@@ -425,9 +446,13 @@ class HGantry(Component):
         :param y: Y coordinate to move to.
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
         achieved. Will be None if the move was buffered and no other moves were processed.
         """
+
+        if check_bounds:
+            self.assert_point_in_bounds(x, y)
 
         self.move_to_point_lock.acquire()
 
@@ -562,7 +587,7 @@ class HGantry(Component):
         final move.
         """
 
-        return self.move_to_offset(0.0, 0.0, 1.0, True)
+        return self.move_to_offset(0.0, 0.0, 1.0, True, False)
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -598,29 +623,39 @@ class HGantry(Component):
             self,
             points: List[Tuple[float, float]],
             mm_per_sec: float,
-            return_to_current_position: bool
+            return_to_current_position: bool,
+            block: bool,
+            check_bounds: bool
     ):
         """
         Trace a list of points.
 
         :param points: Points.
         :param mm_per_sec: Speed in mm per second.
+        :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param return_to_current_position: Whether to return to the current position after moving to the points.
         """
+
+        if check_bounds:
+            all(self.assert_point_in_bounds(x, y) for x, y in points)
 
         if return_to_current_position:
             points = points.copy()
             points.append((self.x, self.y))
 
-        for x, y in points:
-            self.move_to_point(x, y, mm_per_sec, True)
+        num_points = len(points)
+        for i, (x, y) in enumerate(points):
+            logging.info(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
+            self.move_to_point(x, y, mm_per_sec, block, check_bounds)
 
     def move_to_offset(
             self,
             x_offset_mm: float,
             y_offset_mm: float,
             mm_per_sec: float,
-            block: bool
+            block: bool,
+            check_bounds: bool
     ) -> Optional[bool]:
         """
         Move to an offset from the current position.
@@ -629,11 +664,12 @@ class HGantry(Component):
         :param y_offset_mm: Y offset.
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
         achieved. Will be None if the move was buffered and not completed.
         """
 
-        return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec, block)
+        return self.move_to_point(self.x + x_offset_mm, self.y + y_offset_mm, mm_per_sec, block, check_bounds)
 
     def move_to_offset_limit(
             self,
@@ -653,7 +689,7 @@ class HGantry(Component):
         move_distance_mm = math.sqrt(x_offset_mm ** 2 + y_offset_mm ** 2)
         move_time_seconds = move_distance_mm / mm_per_sec
         sleep_time_seconds = move_time_seconds / 2.0
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, False) != False:
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, False, False) != False:
             sleep(sleep_time_seconds)
         else:
             self.clear_async_results_buffer()
@@ -661,22 +697,51 @@ class HGantry(Component):
     def trace_spyrograph(
             self,
             g: _Trochoid,
+            center: Tuple[float, float],
             mm_per_sec: float,
-            return_to_current_position: bool
-    ):
+            return_to_current_position: bool,
+            block: bool,
+            check_bounds: bool
+    ) -> _Trochoid:
         """
         Trace a spyrograph object.
 
         :param g: Spyrograph.
+        :param center: Location of center.
         :param mm_per_sec: Speed.
         :param return_to_current_position: Whether to return to current position.
+        :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :return: Resulting spyrograph, which might be scaled and translated.
         """
+
+        center_x, center_y = center
+        half_width = (g.max_x - g.min_x) / 2.0
+        left_border = center_x - half_width
+        half_height = (g.max_y - g.min_y) / 2.0
+        bottom_border = center_y - half_height
+        g = g.translate(left_border - g.min_x, bottom_border - g.min_y)
+        logging.info(
+            f'Tracing spyrograph within bounds:  ({g.min_x:.3f},{g.min_y:.3f}) (LL) ({g.max_x:.3f},{g.max_y:.3f}) (UR)'
+        )
+
+        if g.max_x > self.left_right_mm:
+            g = g.scale(1.0 - g.max_x / self.left_right_mm)
+            logging.warning('Spyrograph x out of bounds. Rescaled.')
+
+        if g.max_y > self.bottom_top_mm:
+            g = g.scale(1.0 - g.max_y / self.bottom_top_mm)
+            logging.warning('Spyrograph y out of bounds. Rescaled.')
 
         self.move_to_points(
             list(zip(g.x, g.y)),
             mm_per_sec,
-            return_to_current_position
+            return_to_current_position,
+            block,
+            check_bounds
         )
+
+        return g
 
 
 def generate_circle_points(
