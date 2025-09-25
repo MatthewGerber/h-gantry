@@ -11,6 +11,8 @@ from typing import Tuple, List, Optional, Callable
 
 import numpy as np
 from smbus2 import SMBus
+from spyrograph import Hypotrochoid
+from spyrograph.core._trochoid import _Trochoid
 
 from raspberry_py.gpio import CkPin, Component
 from raspberry_py.gpio.adc import ADS7830
@@ -655,6 +657,26 @@ class HGantry(Component):
             sleep(sleep_time_seconds)
         else:
             self.clear_async_results_buffer()
+
+    def trace_spyrograph(
+            self,
+            g: _Trochoid,
+            mm_per_sec: float,
+            return_to_current_position: bool
+    ):
+        """
+        Trace a spyrograph object.
+
+        :param g: Spyrograph.
+        :param mm_per_sec: Speed.
+        :param return_to_current_position: Whether to return to current position.
+        """
+
+        self.move_to_points(
+            list(zip(g.x, g.y)),
+            mm_per_sec,
+            return_to_current_position
+        )
 
 
 def generate_circle_points(

@@ -2,8 +2,10 @@ import logging
 import os.path
 import time
 
+import numpy as np
 import serial
 from serial import Serial
+from spyrograph import Hypotrochoid
 
 from h_gantry.core import HGantry
 from raspberry_py.gpio import setup, cleanup, CkPin
@@ -84,36 +86,34 @@ def main():
     # gantry.move_to_offset(0.0, -10.0, 100.0, False)
     # gantry.move_to_offset(0.0, -10.0, 100.0, False)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    gantry.calibrate(100.0)
-    gantry.center(100.0, True)
+    # gantry.calibrate(100.0)
+    # gantry.center(100.0, True)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 100.0, True)
     # for i in range(30):
     #     gantry.joystick.update_state()
     #     time.sleep(0.5)
     #     print(f'Joystick update {i}')
-    try:
-        time.sleep(1000.0)
-    except KeyboardInterrupt:
-        pass
+    # try:
+    #     time.sleep(1000.0)
+    # except KeyboardInterrupt:
+    #     pass
+
+
+    gantry.trace_spyrograph(g, 100.0, True)
 
     gantry.stop(True)
 
     cleanup()
 
 
-def test_cross_pattern(
-        gantry: HGantry,
-        speed_mm_per_sec: float,
-        block: bool
-):
-    gantry.move_to_point(10, 0, speed_mm_per_sec, block)
-    gantry.move_to_point(-10, 0, speed_mm_per_sec, block)
-    gantry.move_to_point(0, 0, speed_mm_per_sec, block)
-    gantry.move_to_point(0, 10, speed_mm_per_sec, block)
-    gantry.move_to_point(0, -10, speed_mm_per_sec, block)
-    gantry.move_to_point(0, 0, speed_mm_per_sec, block)
-
 
 if __name__ == '__main__':
-    main()
+    # main()
+    g = Hypotrochoid(
+        R=300,
+        r=200,
+        d=100,
+        thetas=np.arange(0, 2 * np.pi, .1).tolist()
+    )
+    g.plot()
