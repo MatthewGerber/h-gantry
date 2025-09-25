@@ -8,6 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "~3.11"
 raspberry-py = {path = "submodules/raspberry-py", develop = true}
+spyrograph = "^0.29.0"
 
 [build-system]
 requires = ["poetry-core"]
