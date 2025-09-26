@@ -26,8 +26,8 @@ const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
   { HIGH, LOW, LOW, HIGH }
 };
 const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving
-const unsigned long MAX_US_PER_DRIVE = 1750;  // slowest driving
-const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / float(US_PER_SEC);  // maximum acceleration:  slowest to fastest within 1 second
+const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
+const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / (0.25 * float(US_PER_SEC));  // maximum acceleration:  slowest to fastest within 0.25s
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;

@@ -153,6 +153,7 @@ class HGantry(Component):
                 state = json.loads(f.read())
             for attribute, value in state.items():
                 setattr(self, attribute, value)
+            logging.info(f'State loaded. Position=({self.x:.3f},{self.y:.3f})')
         else:
             logging.info(f'No state file exists:  {self.state_path}')
             self.x = 0.0
@@ -242,7 +243,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+        return 10.0  # math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
 
     def start(
             self
@@ -325,6 +326,7 @@ class HGantry(Component):
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         """
 
+        logging.info('Centering gantry.')
         self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block, check_bounds)
 
     def move_to_left_limit(

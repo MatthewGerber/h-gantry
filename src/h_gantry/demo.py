@@ -1,5 +1,6 @@
 import logging
 import os.path
+import time
 
 import numpy as np
 import serial
@@ -104,9 +105,9 @@ def main():
         d=100,
         thetas=np.arange(0, 5 * np.pi, 0.05).tolist()
     )
+    g = g.scale(0.5)
     g.plot(marker='.')
-    g = g.scale(0.1)
-    result_g = gantry.trace_spyrograph(
+    gantry.trace_spyrograph(
         g,
         (gantry.x, gantry.y),
         100.0,
@@ -114,7 +115,6 @@ def main():
         True,
         True
     )
-    result_g.plot(marker='.')
     gantry.clear_async_results_buffer()
 
     gantry.stop(True)
