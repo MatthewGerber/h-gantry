@@ -161,6 +161,9 @@ class HGantry(Component):
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
+        self.buffering_x = self.x
+        self.buffering_y = self.y
+
         super().__init__(HGantry.State(self.x, self.y))
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
@@ -566,13 +569,21 @@ class HGantry(Component):
                 stepper_id_skipped_steps[self.right_driver.identifier]
             )
 
-            # advance x and y positions, minus any skipped movement due to limit switches.
-            self.x += result_move_x_mm - skipped_x_mm
-            self.y += result_move_y_mm - skipped_y_mm
+            # subtract any skipped movement due to limit switches
+            self.x -= skipped_x_mm
+            self.y -= skipped_y_mm
 
-            self.set_state(HGantry.State(self.x, self.y))
+            # advance buffering x and y positions, minus any skipped movement due to limit switches.
+            self.buffering_x += result_move_x_mm - skipped_x_mm
+            self.buffering_y += result_move_y_mm - skipped_y_mm
+            self.set_state(HGantry.State(self.buffering_x, self.buffering_y))
 
             succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
+
+        # advance x and y positions as if the moves are already completed, ignoring buffering. this is important because
+        # subsequent calls to move need to be relative to this resulting location.
+        self.x += move_x_mm
+        self.y += move_y_mm
 
         self.move_to_point_lock.release()
 
@@ -739,9 +750,12 @@ class HGantry(Component):
             list(zip(g.x, g.y)),
             mm_per_sec,
             return_to_current_position,
-            block,
+            False,
             check_bounds
         )
+
+        if block:
+            self.clear_async_results_buffer()
 
         return g
 
