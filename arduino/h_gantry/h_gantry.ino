@@ -2,7 +2,7 @@ const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 
-// SerialUSB writes to the arduino IDE serial monitor; _UART1_ writes to serial tx/rx
+// SerialUSB writes to the arduino IDE serial monitor; _UART1_ writes to the serial tx/rx gpio pins
 #define SerialUART _UART1_
 
 // structure that gives simultaneous access to floating-point numbers and their underlying bytes.
@@ -97,6 +97,7 @@ void add_step(
     steps_tail = new_step;
   }
   steps_len += 1;
+
 }
 
 // get the next step from the buffer
@@ -558,19 +559,25 @@ void loop() {
       // left stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       int left_stepper_num_drives = bytes_to_int(args, 2) * STEPPER_DRIVES_PER_STEP;
-      unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
-      unsigned long left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
-      if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-        left_stepper_us_per_drive = MIN_US_PER_DRIVE;
+      unsigned long left_stepper_us_per_drive = 0;
+      if (left_stepper_num_drives > 0) {
+        unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
+        unsigned long left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
+        if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
+          left_stepper_us_per_drive = MIN_US_PER_DRIVE;
+        }
       }
 
       // right stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       int right_stepper_num_drives = bytes_to_int(args, 8) * STEPPER_DRIVES_PER_STEP;
-      unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);
-      unsigned long right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
-      if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-        right_stepper_us_per_drive = MIN_US_PER_DRIVE;
+      unsigned long right_stepper_us_per_drive = 0;
+      if (right_stepper_num_drives > 0) {
+        unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);
+        unsigned long right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
+        if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
+          right_stepper_us_per_drive = MIN_US_PER_DRIVE;
+        }
       }
 
       add_step(
