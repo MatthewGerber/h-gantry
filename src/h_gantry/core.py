@@ -264,6 +264,7 @@ class HGantry(Component):
             self.right_limit_switch_arduino_pin.to_bytes(1) +
             self.bottom_limit_switch_arduino_pin.to_bytes(1) +
             self.top_limit_switch_arduino_pin.to_bytes(1),
+            True,
             1,
             False
         ))
@@ -453,7 +454,8 @@ class HGantry(Component):
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
-        achieved. Will be None if the move was buffered and no other moves were processed.
+        achieved. Will be None if the move was buffered and no other moves were processed. If a previously buffered
+        move was processed for the call, then the return value will be for that move.
         """
 
         if check_bounds:
@@ -486,10 +488,12 @@ class HGantry(Component):
         time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
         # send step command for the joint action of the two steppers, plus a dummy component that will be ignored. the
-        # steppers will send their step commands next, which the arduino will process jointly.
+        # steppers will send their step commands next, which the arduino will process jointly. no need to flush here,
+        # since the stepper drivers will flush.
         self.arduino_serial.write_then_read(
             HGantry.Command.STEP.to_bytes(1) +
             (0).to_bytes(1),
+            False,
             0,
             False
         )
@@ -536,6 +540,11 @@ class HGantry(Component):
                 stepper_id: skipped_steps
                 for stepper_id, skipped_steps in [get_result_1(), get_result_2()]
             }
+
+            assert len(stepper_id_skipped_steps) == 2
+            assert self.left_driver.identifier in stepper_id_skipped_steps
+            assert self.right_driver.identifier in stepper_id_skipped_steps
+
             end_time = time()
             elapsed_seconds = end_time - start_time
 
