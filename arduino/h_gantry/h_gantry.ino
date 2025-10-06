@@ -113,9 +113,7 @@ step* get_next_step() {
   return next_step;
 }
 
-void start_step(step* to_start, bool drive_left_immediately, bool drive_right_immediately) {
-
-  unsigned long curr_time_us = micros();
+void start_step(step* to_start, bool drive_left_immediately, bool drive_right_immediately, unsigned long curr_time_us) {
 
   if (to_start->left_stepper_num_drives == 0) {
     left_stepper_drive_increment = 0;
@@ -560,9 +558,9 @@ void loop() {
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       int left_stepper_num_drives = bytes_to_int(args, 2) * STEPPER_DRIVES_PER_STEP;
       unsigned long left_stepper_us_per_drive = 0;
-      if (left_stepper_num_drives > 0) {
+      if (left_stepper_num_drives != 0) {
         unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
-        unsigned long left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
+        left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
         if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
           left_stepper_us_per_drive = MIN_US_PER_DRIVE;
         }
@@ -572,9 +570,9 @@ void loop() {
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       int right_stepper_num_drives = bytes_to_int(args, 8) * STEPPER_DRIVES_PER_STEP;
       unsigned long right_stepper_us_per_drive = 0;
-      if (right_stepper_num_drives > 0) {
+      if (right_stepper_num_drives != 0) {
         unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);
-        unsigned long right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
+        right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
         if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
           right_stepper_us_per_drive = MIN_US_PER_DRIVE;
         }
@@ -621,7 +619,8 @@ void loop() {
      * driving the steppers immediately since we must have just received a new step command.
     */
     else {
-      start_step(next_step, !completed_left_stepper, !completed_right_stepper);
+      start_step(next_step, !completed_left_stepper, !completed_right_stepper, curr_time_us);
+      delete next_step;
     }
   }
 }
