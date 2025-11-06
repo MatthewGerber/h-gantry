@@ -99,22 +99,22 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-    # g = Hypotrochoid(
-    #     R=350,
-    #     r=200,
-    #     d=100,
-    #     thetas=np.arange(0, 5 * np.pi, 0.01).tolist()
-    # )
-    # g = g.scale(0.25)
-    # g.plot(marker='.')
-    # gantry.trace_spyrograph(
-    #     g,
-    #     (gantry.x, gantry.y),
-    #     100.0,
-    #     True,
-    #     True,
-    #     True
-    # )
+    g = Hypotrochoid(
+        R=350,
+        r=200,
+        d=100,
+        thetas=np.arange(0, 5 * np.pi, 0.01).tolist()
+    )
+    g = g.scale(0.25)
+    g.plot(marker='.')
+    gantry.trace_spyrograph(
+        g,
+        (gantry.x, gantry.y),
+        100.0,
+        True,
+        True,
+        True
+    )
 
     gantry.stop(True)
 

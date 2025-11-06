@@ -7,18 +7,31 @@ from datetime import timedelta
 from enum import IntEnum
 from threading import Lock
 from time import time, sleep
-from typing import Tuple, List, Optional, Callable
+from typing import Tuple, List, Optional, Callable, NamedTuple
 
 import numpy as np
-from smbus2 import SMBus
-# noinspection PyProtectedMember
-from spyrograph.core._trochoid import _Trochoid
-
 from raspberry_py.gpio import CkPin, Component
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
+from smbus2 import SMBus
+# noinspection PyProtectedMember
+from spyrograph.core._trochoid import _Trochoid
+
+
+class Step(NamedTuple):
+    """
+    Step record for gantry movement.
+    """
+
+    move_x_mm: float
+    move_y_mm: float
+    left_stepper_steps: int
+    get_left_driver_return_value: Callable
+    right_stepper_steps: int
+    get_right_driver_return_value: Callable
+    timestamp: float
 
 
 class HGantry(Component):
@@ -161,8 +174,8 @@ class HGantry(Component):
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
 
-        self.buffering_x = self.x
-        self.buffering_y = self.y
+        self.actual_x = self.x
+        self.actual_y = self.y
 
         super().__init__(HGantry.State(self.x, self.y))
 
@@ -199,7 +212,7 @@ class HGantry(Component):
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
 
-        self.step_async_results_buffer: deque[Tuple[float, float, int, Callable, int, Callable, float]] = deque()
+        self.step_async_results_buffer: deque[Step] = deque()
         self.step_async_results_buffer_max_len = 5
 
     def joystick_move(
@@ -391,14 +404,14 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
-        # measure distance between horizontal limits
+        # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(mm_per_sec)
         left_x = self.x
         self.move_to_right_limit(mm_per_sec)
         right_x = self.x
         self.left_right_mm = self.x = right_x - left_x
 
-        # measure distance between vertical limits
+        # measure distance between vertical limits, and set actual y position.
         self.move_to_bottom_limit(mm_per_sec)
         bottom_y = self.y
         self.move_to_top_limit(mm_per_sec)
@@ -411,11 +424,11 @@ class HGantry(Component):
             y: float
     ) -> Tuple[float, float]:
         """
-        Get the movement to a point.
+        Get the movement to a point in terms of x and y distances (mm).
 
         :param x: Point's x position.
         :param y: Point's y position.
-        :return: Movement.
+        :return: Movement as a 2-tuple of x and y distances, each in mm.
         """
 
         return x - self.x, y - self.y
@@ -434,7 +447,7 @@ class HGantry(Component):
 
         if not (0.0 <= x <= self.left_right_mm and 0.0 <= y <= self.bottom_top_mm):
             raise ValueError(
-                f'Point ({x}, {y}) is out of bounds (0.0, {self.left_right_mm}), (0.0, {self.bottom_top_mm})'
+                f'Point ({x}, {y}) is out of bounds [0.0, {self.left_right_mm}], [0.0, {self.bottom_top_mm}].'
             )
 
     def move_to_point(
@@ -455,148 +468,148 @@ class HGantry(Component):
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
         achieved. Will be None if the move was buffered and no other moves were processed. If a previously buffered
-        move was processed for the call, then the return value will be for that move.
+        move was processed by the current call, then the return value will be for that move.
         """
 
-        if check_bounds:
-            self.assert_point_in_bounds(x, y)
+        try:
 
-        self.move_to_point_lock.acquire()
+            self.move_to_point_lock.acquire()
 
-        # calculate x steps (left/right) and y steps (down/up) to move
-        move_x_mm, move_y_mm = self.get_move_to(x, y)
-        x_steps = move_x_mm * self.steps_per_mm
-        y_steps = move_y_mm * self.steps_per_mm
+            if check_bounds:
+                self.assert_point_in_bounds(x, y)
 
-        # assign steps to the left/right motors. consider the following:
-        #
-        # move left (x_steps < 0):  each stepper takes x_steps
-        # move right (x_steps > 0):  each stepper takes x_steps
-        # move down (y_steps < 0):  left stepper takes y_steps; right stepper takes -y_steps
-        # move up (y_steps > 0):  left stepper takes y_steps; right stepper takes -y_steps
-        #
-        # the combined x and y movement is achieved by adding x movement to y movement:
-        #
-        # left stepper steps:  x_steps + y_steps
-        # right stepper steps:  x_steps - y_steps
-        #
-        left_stepper_steps = int(x_steps + y_steps)
-        right_stepper_steps = int(x_steps - y_steps)
+            # calculate x steps (left/right) and y steps (down/up) to move
+            move_x_mm, move_y_mm = self.get_move_to(x, y)
+            x_steps = move_x_mm * self.steps_per_mm
+            y_steps = move_y_mm * self.steps_per_mm
 
-        # calculate time to step directly to the new point
-        distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
-        time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
+            # assign steps to the left/right motors. consider the following:
+            #
+            # move left (x_steps < 0):  each stepper takes x_steps
+            # move right (x_steps > 0):  each stepper takes x_steps
+            # move down (y_steps < 0):  left stepper takes y_steps; right stepper takes -y_steps
+            # move up (y_steps > 0):  left stepper takes y_steps; right stepper takes -y_steps
+            #
+            # the combined x and y movement is achieved by adding x movement to y movement:
+            #
+            # left stepper steps:  x_steps + y_steps
+            # right stepper steps:  x_steps - y_steps
+            #
+            left_stepper_steps = int(x_steps + y_steps)
+            right_stepper_steps = int(x_steps - y_steps)
 
-        # send step command for the joint action of the two steppers, plus a dummy component that will be ignored. the
-        # steppers will send their step commands next, which the arduino will process jointly. no need to flush here,
-        # since the stepper drivers will flush.
-        self.arduino_serial.write_then_read(
-            HGantry.Command.STEP.to_bytes(1) +
-            (0).to_bytes(1),
-            False,
-            0,
-            False
-        )
+            # calculate time to step directly to the new point
+            distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
+            time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-        # step motors. they're asserted to operate asynchronously, so the return value will be a function that returns
-        # a stepper identifier and the number of skipped steps due to limiting.
-        self.step_async_results_buffer.append((
-            move_x_mm,
-            move_y_mm,
-            left_stepper_steps,
-            self.left_stepper.step(left_stepper_steps, time_to_step),
-            right_stepper_steps,
-            self.right_stepper.step(right_stepper_steps, time_to_step),
-            time()
-        ))
+            # send step command for the joint action of the two steppers, plus a dummy component that will be ignored.
+            # the steppers will send their step commands next, which the arduino will process jointly. no need to flush
+            # here, since the stepper drivers will flush.
+            self.arduino_serial.write_then_read(
+                HGantry.Command.STEP.to_bytes(1) +
+                (0).to_bytes(1),
+                False,
+                0,
+                False
+            )
 
-        # if the caller wants to block and wait for the current move to complete, then set the maximum buffer length to
-        # zero, which will force all buffered steps (including the current) to complete before returning.
-        if block:
-            max_buffer_len = 0
+            # step motors and record in the buffer. the stepper drivers are asserted to operate asynchronously, so each
+            # return value will be a function that returns a stepper identifier and the number of skipped steps due to
+            # hitting a limit switch.
+            self.step_async_results_buffer.append(Step(
+                move_x_mm,
+                move_y_mm,
+                left_stepper_steps,
+                self.left_stepper.step(left_stepper_steps, time_to_step),
+                right_stepper_steps,
+                self.right_stepper.step(right_stepper_steps, time_to_step),
+                time()
+            ))
 
-        # otherwise, allow calls to buffer up to the given length.
-        else:
-            max_buffer_len = self.step_async_results_buffer_max_len
+            # if the caller wants to block and wait for the current move to complete, then set the maximum buffer length
+            # to zero, which will force all buffered steps (including the current) to complete before returning.
+            if block:
+                max_buffer_len = 0
 
-        succeeded_without_limit = None
+            # otherwise, allow calls to buffer up to the given length.
+            else:
+                max_buffer_len = self.step_async_results_buffer_max_len
 
-        # process the buffer until it's within the max length
-        while len(self.step_async_results_buffer) > max_buffer_len:
+            succeeded_without_limit = None
 
-            # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
-            # back in an unpredictable order. however, the result tuples have the stepper identifier as the first
-            # element, so we can key on that to obtain the result for each stepper.
-            (
-                result_move_x_mm,
-                result_move_y_mm,
-                result_left_stepper_steps,
-                get_result_1,
-                result_right_stepper_steps,
-                get_result_2,
-                start_time
-            ) = self.step_async_results_buffer.popleft()
-            stepper_id_skipped_steps = {
-                stepper_id: skipped_steps
-                for stepper_id, skipped_steps in [get_result_1(), get_result_2()]
-            }
+            # process the buffer until it's within the max length
+            while len(self.step_async_results_buffer) > max_buffer_len:
 
-            assert len(stepper_id_skipped_steps) == 2
-            assert self.left_driver.identifier in stepper_id_skipped_steps
-            assert self.right_driver.identifier in stepper_id_skipped_steps
+                step_result = self.step_async_results_buffer.popleft()
 
-            end_time = time()
-            elapsed_seconds = end_time - start_time
+                # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will come
+                # back in an unpredictable order. however, the result tuples have the stepper identifier as the first
+                # element, so we can key on that to obtain the result for each stepper.
+                stepper_id_skipped_steps = {
+                    stepper_id: skipped_steps
+                    for stepper_id, skipped_steps in [
+                        step_result.get_left_driver_return_value(),
+                        step_result.get_right_driver_return_value()
+                    ]
+                }
+                assert len(stepper_id_skipped_steps) == 2
+                left_stepper_skipped_steps = stepper_id_skipped_steps[self.left_driver.identifier]
+                right_stepper_skipped_steps = stepper_id_skipped_steps[self.right_driver.identifier]
 
-            # update stepper states now that we have results
-            left_stepper_state: Stepper.State = self.left_stepper.state
-            super(Stepper, self.left_stepper).set_state(
-                Stepper.State(
-                    round(
-                        left_stepper_state.step +
-                        result_left_stepper_steps -
-                        stepper_id_skipped_steps[self.left_driver.identifier]
-                    ),
-                    timedelta(seconds=elapsed_seconds)
+                end_time = time()
+                elapsed_seconds = end_time - step_result.timestamp
+
+                # update stepper states now that we have results
+                left_stepper_state: Stepper.State = self.left_stepper.state
+                super(Stepper, self.left_stepper).set_state(
+                    Stepper.State(
+                        round(
+                            left_stepper_state.step +
+                            step_result.left_stepper_steps -
+                            left_stepper_skipped_steps
+                        ),
+                        timedelta(seconds=elapsed_seconds)
+                    )
                 )
-            )
-            right_stepper_state: Stepper.State = self.right_stepper.state
-            super(Stepper, self.right_stepper).set_state(
-                Stepper.State(
-                    round(
-                        right_stepper_state.step +
-                        result_right_stepper_steps -
-                        stepper_id_skipped_steps[self.right_driver.identifier]
-                    ),
-                    timedelta(seconds=elapsed_seconds)
+                right_stepper_state: Stepper.State = self.right_stepper.state
+                super(Stepper, self.right_stepper).set_state(
+                    Stepper.State(
+                        round(
+                            right_stepper_state.step +
+                            step_result.right_stepper_steps -
+                            right_stepper_skipped_steps
+                        ),
+                        timedelta(seconds=elapsed_seconds)
+                    )
                 )
-            )
 
-            # calculate skipped distances from skipped steps
-            skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
-                stepper_id_skipped_steps[self.left_driver.identifier],
-                stepper_id_skipped_steps[self.right_driver.identifier]
-            )
+                # calculate skipped distances from skipped steps
+                skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
+                    left_stepper_skipped_steps,
+                    right_stepper_skipped_steps
+                )
 
-            # subtract any skipped movement due to limit switches
-            self.x -= skipped_x_mm
-            self.y -= skipped_y_mm
+                # subtract any skipped movement due to limit switches
+                self.x -= skipped_x_mm
+                self.y -= skipped_y_mm
 
-            # advance buffering x and y positions, minus any skipped movement due to limit switches.
-            self.buffering_x += result_move_x_mm - skipped_x_mm
-            self.buffering_y += result_move_y_mm - skipped_y_mm
-            self.set_state(HGantry.State(self.buffering_x, self.buffering_y))
+                # advance actual x and y positions, minus any skipped movement due to limit switches.
+                self.actual_x += step_result.move_x_mm - skipped_x_mm
+                self.actual_y += step_result.move_y_mm - skipped_y_mm
+                self.set_state(HGantry.State(self.actual_x, self.actual_y))
 
-            succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
+                succeeded_without_limit = skipped_x_mm == 0.0 and skipped_y_mm == 0.0
 
-        # advance x and y positions as if the moves are already completed, ignoring buffering. this is important because
-        # subsequent calls to move need to be relative to this resulting location.
-        self.x += move_x_mm
-        self.y += move_y_mm
+            # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
+            # because subsequent calls to move need to be relative to this resulting location.
+            self.x += move_x_mm
+            self.y += move_y_mm
 
-        self.move_to_point_lock.release()
+            return succeeded_without_limit
 
-        return succeeded_without_limit
+        # ensure lock is released
+        finally:
+            self.move_to_point_lock.release()
 
     def clear_async_results_buffer(
             self
