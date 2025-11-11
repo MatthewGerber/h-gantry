@@ -78,7 +78,7 @@ def main():
         timing_pulley_dia_mm=12.97,
         state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
     )
-    gantry.event(lambda s: logging.info(f'Gantry position:  {s}'))
+    gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 
     gantry.start()
     # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
@@ -103,7 +103,7 @@ def main():
         R=350,
         r=200,
         d=100,
-        thetas=np.arange(0, 5 * np.pi, 0.01).tolist()
+        thetas=np.arange(0, 2 * np.pi, 0.01).tolist()
     )
     g = g.scale(0.25)
     g.plot(marker='.')

@@ -485,7 +485,7 @@ void loop() {
   }
 
   // process a commands sent over the serial connection
-  if (SerialUART.available()) {
+  while (SerialUART.available()) {
 
     byte command_bytes[CMD_BYTES_LEN];
     SerialUART.readBytes(command_bytes, CMD_BYTES_LEN);
