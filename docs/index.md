@@ -13,6 +13,12 @@ axis, which is not ideal when the axes are changing direction quickly. In the la
 positions, so the motor mass is not attached to a moving axis. The control is more complicated, but this makes it 
 interesting, which is also an advantage!
 
+# Application:  Sand Art Table
+
+<iframe src="https://gmail3021534.autodesk360.com/shares/public/SH90d2dQT28d5b60281107cf401bdab15bcf?mode=embed" width="800" height="600" allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"  frameborder="0"></iframe>
+
+The gantry pulls a steel ball over sand using a magnet underneath, creating patterns.
+
 # Materials and Equipment
 
 ## Power
