@@ -17,7 +17,8 @@ interesting, which is also an advantage!
 
 <iframe src="https://gmail3021534.autodesk360.com/shares/public/SH90d2dQT28d5b60281107cf401bdab15bcf?mode=embed" width="800" height="600" allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"  frameborder="0"></iframe>
 
-The gantry pulls a steel ball over sand using a magnet underneath, creating patterns.
+The gantry pulls a steel ball over sand using a magnet underneath, creating patterns. Use the "Explode Model" button and
+slider to inspect the internal components of the model.
 
 # Materials and Equipment
 
