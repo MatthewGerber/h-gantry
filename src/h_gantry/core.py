@@ -5,9 +5,10 @@ import os.path
 from collections import deque
 from datetime import timedelta
 from enum import IntEnum
+from functools import partial
 from threading import Lock
 from time import time, sleep
-from typing import Tuple, List, Optional, Callable, NamedTuple
+from typing import Tuple, List, Optional, Callable, NamedTuple, Union
 
 import numpy as np
 from raspberry_py.gpio import CkPin, Component
@@ -15,6 +16,7 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
+from raspberry_py.rest.application import RpyFlask
 from smbus2 import SMBus
 # noinspection PyProtectedMember
 from spyrograph.core._trochoid import _Trochoid
@@ -793,6 +795,19 @@ class HGantry(Component):
             self.clear_async_results_buffer()
 
         return g
+
+    def get_ui_elements(
+            self
+    ) -> List[Tuple[Union[str, Tuple[str, str]], str]]:
+        """
+        Get UI elements for the current component.
+
+        :return: List of 2-tuples of (1) element key and (2) element content.
+        """
+
+        return [
+            RpyFlask.get_button(self.id, partial(self.calibrate, 10.0), None, None, None, None, 'Calibrate')
+        ]
 
 
 def generate_circle_points(
