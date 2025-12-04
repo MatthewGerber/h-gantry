@@ -5,7 +5,6 @@ import os.path
 from collections import deque
 from datetime import timedelta
 from enum import IntEnum
-from functools import partial
 from threading import Lock
 from time import time, sleep
 from typing import Tuple, List, Optional, Callable, NamedTuple, Union
@@ -806,7 +805,7 @@ class HGantry(Component):
         """
 
         return [
-            RpyFlask.get_button(self.id, partial(self.calibrate, 10.0), None, None, None, None, 'Calibrate')
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate')
         ]
 
 

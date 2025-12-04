@@ -8,7 +8,10 @@ from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 from raspberry_py.rest.application import app
 from serial import Serial
 
-from src.h_gantry.core import HGantry
+from h_gantry.core import HGantry
+
+STEPPER_POLES = 32
+STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 64.0
 
 locking_serial = LockingSerial(
     connection=Serial(
@@ -21,12 +24,9 @@ locking_serial = LockingSerial(
     throughput_step_size=0.05
 )
 
-poles = 32
-output_rotor_ratio = 1.0 / 64.0
-
 left_stepper = Stepper(
-    poles=poles,
-    output_rotor_ratio=output_rotor_ratio,
+    poles=STEPPER_POLES,
+    output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
     driver=StepperMotorDriverArduinoUln2003(
         driver_pin_1=5,
         driver_pin_2=6,
@@ -40,8 +40,8 @@ left_stepper = Stepper(
 )
 
 right_stepper = Stepper(
-    poles=poles,
-    output_rotor_ratio=output_rotor_ratio,
+    poles=STEPPER_POLES,
+    output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
     driver=StepperMotorDriverArduinoUln2003(
         driver_pin_1=9,
         driver_pin_2=10,
