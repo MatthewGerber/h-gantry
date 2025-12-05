@@ -1,0 +1,14 @@
+<button type="button" class="btn btn-primary" id="gantry-1-center">Center</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_center = $("#gantry-1-center");
+function on_press_center () {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/center?mm_per_sec=float:10.0&block=bool:True&check_bounds=bool:False",
+    type: "GET"
+  });
+}
+gantry_1_center.on("mousedown touchstart", function () {
+  on_press_center();
+});
+</script>
