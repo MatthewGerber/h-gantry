@@ -214,8 +214,8 @@ class HGantry(Component):
         self.joystick_update_interval_seconds = 0.01
 
         self.move_buffer: deque[Move] = deque()
-        self.move_buffer_max_len = 500
-        self.move_buffer_min_len = 10
+        self.move_buffer_max_len = 10
+        self.move_buffer_min_len = 5
 
     def joystick_move(
             self,
@@ -805,7 +805,8 @@ class HGantry(Component):
         """
 
         return [
-            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate')
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate'),
+            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, 'Center')
         ]
 
 

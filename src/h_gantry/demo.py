@@ -88,6 +88,7 @@ def main():
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
     # gantry.calibrate(100.0)
     # gantry.center(100.0, True, True)
+    # gantry.move_to_top_limit(100.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 100.0, True)
     # for i in range(30):
@@ -99,22 +100,22 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-    g = Hypotrochoid(
-        R=350,
-        r=200,
-        d=100,
-        thetas=np.arange(0, 2 * np.pi, 0.01).tolist()
-    )
-    g = g.scale(0.25)
-    g.plot(marker='.')
-    gantry.trace_spyrograph(
-        g,
-        (gantry.x, gantry.y),
-        100.0,
-        True,
-        True,
-        True
-    )
+    # g = Hypotrochoid(
+    #     R=350,
+    #     r=200,
+    #     d=100,
+    #     thetas=np.arange(0, 2 * np.pi, 0.01).tolist()
+    # )
+    # g = g.scale(0.25)
+    # g.plot(marker='.')
+    # gantry.trace_spyrograph(
+    #     g,
+    #     (gantry.x, gantry.y),
+    #     100.0,
+    #     True,
+    #     True,
+    #     True
+    # )
 
     gantry.stop(True)
 

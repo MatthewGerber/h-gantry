@@ -70,3 +70,13 @@ gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 gantry.id = 'gantry-1'
 
 app.add_component(gantry)
+
+def on_exit():
+    """
+    Clean up, save state, etc.
+    """
+
+    gantry.clear_async_results_buffer()
+    gantry.stop(True)
+
+app.register_on_exit_callback(on_exit)
