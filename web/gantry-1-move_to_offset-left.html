@@ -1,0 +1,14 @@
+<button type="button" class="btn btn-primary" id="gantry-1-move_to_offset-left"><</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_move_to_offset_left = $("#gantry-1-move_to_offset-left");
+function on_press_move_to_offset () {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/move_to_offset?x_offset_mm=float:-10.0&y_offset_mm=float:0.0&mm_per_sec=float:10.0&block=bool:True&check_bounds=bool:True",
+    type: "GET"
+  });
+}
+gantry_1_move_to_offset_left.on("mousedown touchstart", function () {
+  on_press_move_to_offset();
+});
+</script>
