@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <meta http-equiv="x-ua-compatible" content="ie=edge" />
-    <title>Example:  Servo</title>
+    <title>Sand Art Table</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap"/>
     <link rel="stylesheet" href="rpy-rest/mdbootstrap/css/mdb.min.css" />
@@ -15,15 +15,38 @@
       <div class="rpy-div">
         <div class="row">
           <div class="col-md">
-            <div class="text-center"><h5>Art Sand Table</h5></div>
+            <div class="text-center"><h5>Sand Art Table</h5></div>
           </div>
         </div>
       </div>
       <div class="rpy-div">
         <div class="row">
+            <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+              <div id="div-gantry-1-move_to_offset-up"></div>
+            </div>
+        </div>
+        <div class="row">
+          <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+              <div id="div-gantry-1-move_to_offset-left"></div>
+          </div>
+          <div class="col-md">
+            <div id="div-gantry-1-get_line_plot"></div>
+          </div>
+          <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+              <div id="div-gantry-1-move_to_offset-right"></div>
+          </div>
+        </div>
+        <div class="row">
+            <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+              <div id="div-gantry-1-move_to_offset-down"></div>
+            </div>
+        </div>
+        <div class="row">
           <div class="col-md">
             <div id="div-gantry-1-calibrate"></div>
           </div>
+        </div>
+        <div>
           <div class="col-md">
             <div id="div-gantry-1-center"></div>
           </div>
@@ -32,6 +55,11 @@
     </div>
     <script type="text/javascript" src="rpy-rest/mdbootstrap/js/mdb.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.4.1.js"></script>
+    <script>$("#div-gantry-1-move_to_offset-up").load("gantry-1-move_to_offset-up.html");</script>
+    <script>$("#div-gantry-1-move_to_offset-left").load("gantry-1-move_to_offset-left.html");</script>
+    <script>$("#div-gantry-1-move_to_offset-right").load("gantry-1-move_to_offset-right.html");</script>
+    <script>$("#div-gantry-1-move_to_offset-down").load("gantry-1-move_to_offset-down.html");</script>
+    <script>$("#div-gantry-1-get_line_plot").load("gantry-1-get_line_plot.html");</script>
     <script>$("#div-gantry-1-calibrate").load("gantry-1-calibrate.html");</script>
     <script>$("#div-gantry-1-center").load("gantry-1-center.html");</script>
   </body>

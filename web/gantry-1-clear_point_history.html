@@ -1,0 +1,14 @@
+<button type="button" class="btn btn-primary" id="gantry-1-clear_point_history">Clear Plot</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_clear_point_history = $("#gantry-1-clear_point_history");
+function on_press_clear_point_history () {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/clear_point_history?",
+    type: "GET"
+  });
+}
+gantry_1_clear_point_history.on("mousedown touchstart", function () {
+  on_press_clear_point_history();
+});
+</script>
