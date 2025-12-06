@@ -1,3 +1,5 @@
+import base64
+import io
 import json
 import logging
 import math
@@ -10,6 +12,7 @@ from time import time, sleep
 from typing import Tuple, List, Optional, Callable, NamedTuple, Union
 
 import numpy as np
+from matplotlib import pyplot as plt
 from raspberry_py.gpio import CkPin, Component
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
@@ -26,6 +29,8 @@ class Move(NamedTuple):
     Move record for gantry.
     """
 
+    to_x_mm: float
+    to_y_mm: float
     move_x_mm: float
     move_y_mm: float
     left_stepper_steps: int
@@ -217,6 +222,8 @@ class HGantry(Component):
         self.move_buffer_max_len = 10
         self.move_buffer_min_len = 5
 
+        self.point_history: List[Tuple[float, float]] = []
+
     def joystick_move(
             self,
             joystick_state: Joystick.State
@@ -299,7 +306,7 @@ class HGantry(Component):
         """
 
         # process the buffer to obtain current x/y position
-        self.clear_async_results_buffer()
+        self.clear_move_buffer()
 
         self.joystick.stop_updating_state()
         self.adc.close()
@@ -519,6 +526,8 @@ class HGantry(Component):
             # return value will be a function that returns a stepper identifier and the number of skipped steps due to
             # hitting a limit switch.
             self.move_buffer.append(Move(
+                x,
+                y,
                 move_x_mm,
                 move_y_mm,
                 left_stepper_steps,
@@ -606,6 +615,8 @@ class HGantry(Component):
                     self.actual_y += move.move_y_mm - skipped_y_mm
                     self.set_state(HGantry.State(self.actual_x, self.actual_y))
 
+                    self.point_history.append((self.actual_x, self.actual_y))
+
                     if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
                         logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                         succeeded_without_limit = False
@@ -615,7 +626,9 @@ class HGantry(Component):
                 logging.info('Drained.')
 
             # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
-            # because subsequent calls to move need to be relative to this resulting location.
+            # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
+            # actual x and y positions separately (actual_x and actual_y). eventually these values will converge, so
+            # long as we don't hit limit switches.
             self.x += move_x_mm
             self.y += move_y_mm
 
@@ -625,11 +638,11 @@ class HGantry(Component):
         finally:
             self.move_to_point_lock.release()
 
-    def clear_async_results_buffer(
+    def clear_move_buffer(
             self
     ) -> bool:
         """
-        Clear the results buffer. Does not move the gantry beyond the moves currently in the buffer. Blocks until all
+        Clear the move buffer. Does not move the gantry beyond the moves currently in the buffer. Blocks until all
         moves are complete.
 
         :return: True if the buffer was cleared without hitting a limit switch; False if limit switch was hit by the
@@ -637,6 +650,19 @@ class HGantry(Component):
         """
 
         return self.move_to_offset(0.0, 0.0, 1.0, True, False)
+
+    def clear_point_history(
+            self
+    ):
+        """
+        Clear the point history.
+        """
+
+        try:
+            self.move_to_point_lock.acquire()
+            self.point_history.clear()
+        finally:
+            self.move_to_point_lock.release()
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -741,7 +767,7 @@ class HGantry(Component):
         while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, False, False) != False:
             sleep(sleep_time_seconds)
         else:
-            self.clear_async_results_buffer()
+            self.clear_move_buffer()
 
     def trace_spyrograph(
             self,
@@ -791,9 +817,37 @@ class HGantry(Component):
         )
 
         if block:
-            self.clear_async_results_buffer()
+            self.clear_move_buffer()
 
         return g
+
+    def get_line_plot(
+            self
+    ) -> str:
+        """
+        Get line plot for the gantry.
+
+        :return: Base-64 encoded image of line plot.
+        """
+
+        try:
+            self.move_to_point_lock.acquire()
+            plt.plot(*zip(*self.point_history), linestyle='-', marker='o', label='Moves')
+            plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Buffer')
+        finally:
+            self.move_to_point_lock.release()
+
+        plt.legend()
+        plt.xlim(0.0, self.left_right_mm)
+        plt.ylim(0.0, self.bottom_top_mm)
+        plt.tight_layout()
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format='jpeg', bbox_inches='tight')
+        plt.close()
+        buffer.seek(0)
+        base64_str = str(base64.b64encode(buffer.getvalue()))[2:-1]
+
+        return base64_str
 
     def get_ui_elements(
             self
@@ -806,7 +860,14 @@ class HGantry(Component):
 
         return [
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, 'Center')
+            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, 'v', 'down'),
+            RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1), None),
+            RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, 'Clear Plot'),
+            RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, 'Clear Move Buffer'),
         ]
 
 

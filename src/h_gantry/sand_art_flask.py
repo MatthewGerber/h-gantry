@@ -13,6 +13,8 @@ from h_gantry.core import HGantry
 STEPPER_POLES = 32
 STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 64.0
 
+logging.basicConfig(level=logging.INFO)
+
 locking_serial = LockingSerial(
     connection=Serial(
         port='/dev/serial0',
@@ -68,6 +70,7 @@ gantry = HGantry(
 )
 gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 gantry.id = 'gantry-1'
+gantry.start()
 
 app.add_component(gantry)
 
@@ -76,7 +79,6 @@ def on_exit():
     Clean up, save state, etc.
     """
 
-    gantry.clear_async_results_buffer()
     gantry.stop(True)
 
 app.register_on_exit_callback(on_exit)
