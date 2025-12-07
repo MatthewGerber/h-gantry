@@ -841,6 +841,7 @@ class HGantry(Component):
         plt.xlim(0.0, self.left_right_mm)
         plt.ylim(0.0, self.bottom_top_mm)
         plt.tight_layout()
+
         buffer = io.BytesIO()
         plt.savefig(buffer, format='jpeg', bbox_inches='tight')
         plt.close()
