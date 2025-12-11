@@ -418,14 +418,14 @@ class HGantry(Component):
         left_x = self.x
         self.move_to_right_limit(mm_per_sec)
         right_x = self.x
-        self.left_right_mm = self.x = right_x - left_x
+        self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
         self.move_to_bottom_limit(mm_per_sec)
         bottom_y = self.y
         self.move_to_top_limit(mm_per_sec)
         top_y = self.y
-        self.bottom_top_mm = self.y = top_y - bottom_y
+        self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
     def get_move_to(
             self,
