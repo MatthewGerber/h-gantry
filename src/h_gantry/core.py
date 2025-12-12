@@ -923,7 +923,7 @@ class HGantry(Component):
             RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '>', 'right'),
             RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '^', 'up'),
             RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, 'v', 'down'),
-            RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1), None),
+            RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, 'Clear Move Buffer'),
             RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, spyrograph_args, None, None, None, 'Draw Spyrograph')
