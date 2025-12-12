@@ -1,0 +1,14 @@
+<button type="button" class="btn btn-primary" id="gantry-1-trace_spyrograph_from_params">Draw Spyrograph</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_trace_spyrograph_from_params = $("#gantry-1-trace_spyrograph_from_params");
+function on_press_trace_spyrograph_from_params () {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/trace_spyrograph_from_params?R=float:350.0&r=float:200.0&d=float:100.0&theta_start=float:0.0&theta_stop=float:6.283185307179586&theta_step=float:0.01&scale=float:0.25&mm_per_sec=float:20.0",
+    type: "GET"
+  });
+}
+gantry_1_trace_spyrograph_from_params.on("mousedown touchstart", function () {
+  on_press_trace_spyrograph_from_params();
+});
+</script>
