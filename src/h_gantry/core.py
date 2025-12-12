@@ -20,6 +20,7 @@ from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 from raspberry_py.rest.application import RpyFlask
 from smbus2 import SMBus
+from spyrograph import Hypotrochoid
 # noinspection PyProtectedMember
 from spyrograph.core._trochoid import _Trochoid
 
@@ -769,6 +770,48 @@ class HGantry(Component):
         else:
             self.clear_move_buffer()
 
+    def trace_spyrograph_from_params(
+            self,
+            R: float,
+            r: float,
+            d: float,
+            theta_start: float,
+            theta_stop: float,
+            theta_step: float,
+            scale: float,
+            mm_per_sec: float
+    ):
+        """
+        Trace a spyrograph from parameters.
+
+        :param R: Radius of the fixed circle.
+        :param r: Radius of the rolling circle.
+        :param d: Distance of the trace point from the rolling circle.
+        :param theta_start: Theta start.
+        :param theta_stop: Theta stop.
+        :param theta_step: Theta step.
+        :param scale: Scale.
+        :param mm_per_sec: Speed.
+        """
+
+        g = Hypotrochoid(
+            R=R,
+            r=r,
+            d=d,
+            theta_start=theta_start,
+            theta_stop=theta_stop,
+            theta_step=theta_step
+        ).scale(scale)
+
+        self.trace_spyrograph(
+            g,
+            (self.x, self.y),
+            mm_per_sec,
+            True,
+            True,
+            True
+        )
+
     def trace_spyrograph(
             self,
             g: _Trochoid,
@@ -832,14 +875,17 @@ class HGantry(Component):
 
         try:
             self.move_to_point_lock.acquire()
-            plt.plot(*zip(*self.point_history), linestyle='-', marker='o', label='Moves')
-            plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Buffer')
+            plt.plot(*zip(*self.point_history), linestyle='-', marker='o', label='Completed')
+            plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Future')
         finally:
             self.move_to_point_lock.release()
 
+        plt.grid()
         plt.legend()
         plt.xlim(0.0, self.left_right_mm)
         plt.ylim(0.0, self.bottom_top_mm)
+        plt.xlabel('mm')
+        plt.ylabel('mm')
         plt.tight_layout()
 
         buffer = io.BytesIO()
@@ -859,6 +905,17 @@ class HGantry(Component):
         :return: List of 2-tuples of (1) element key and (2) element content.
         """
 
+        spyrograph_args = {
+            'R': 350.0,
+            'r': 200.0,
+            'd': 100.0,
+            'theta_start': 0.0,
+            'theta_stop': 2.0 * math.pi,
+            'theta_step': 0.01,
+            'scale': 0.25,
+            'mm_per_sec': 20.0
+        }
+
         return [
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate'),
             RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, 'Center'),
@@ -869,6 +926,7 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, 'Clear Move Buffer'),
+            RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, spyrograph_args, None, None, None, 'Draw Spyrograph')
         ]
 
 
