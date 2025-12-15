@@ -14,15 +14,16 @@ from typing import Tuple, List, Optional, Callable, NamedTuple, Union
 import numpy as np
 from matplotlib import pyplot as plt
 from raspberry_py.gpio import CkPin, Component
+from smbus2 import SMBus
+from spyrograph import Hypotrochoid
+# noinspection PyProtectedMember
+from spyrograph.core._trochoid import _Trochoid
+
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
 from raspberry_py.rest.application import RpyFlask
-from smbus2 import SMBus
-from spyrograph import Hypotrochoid
-# noinspection PyProtectedMember
-from spyrograph.core._trochoid import _Trochoid
 
 
 class Move(NamedTuple):
@@ -905,16 +906,23 @@ class HGantry(Component):
         :return: List of 2-tuples of (1) element key and (2) element content.
         """
 
-        spyrograph_args = {
-            'R': 350.0,
-            'r': 200.0,
-            'd': 100.0,
-            'theta_start': 0.0,
-            'theta_stop': 2.0 * math.pi,
-            'theta_step': 0.01,
-            'scale': 0.25,
-            'mm_per_sec': 20.0
-        }
+        R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-R',
+            'Spyrograph:  R',
+            "350.0",
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spyrograph_args = [
+            ('R', float, f'{R_textbox_id}'),
+            # ('r', float, f'{}'
+            # 'd': 100.0,
+            # 'theta_start': 0.0,
+            # 'theta_stop': 2.0 * math.pi,
+            # 'theta_step': 0.01,
+            # 'scale': 0.25,
+            # 'mm_per_sec': 20.0
+        ]
 
         return [
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate'),
@@ -924,9 +932,10 @@ class HGantry(Component):
             RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '^', 'up'),
             RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
-            RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, 'Clear Plot'),
-            RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, spyrograph_args, None, None, None, 'Draw Spyrograph')
+            RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
+            RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
+            RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, None, spyrograph_args, None, None, None, 'Draw Spyrograph'),
+            (R_textbox_id, R_textbox_ui_element)
         ]
 
 
