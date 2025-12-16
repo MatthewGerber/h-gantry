@@ -1,115 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+    <meta http-equiv="x-ua-compatible" content="ie=edge"/>
     <title>Sand Art Table</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap"/>
-    <link rel="stylesheet" href="rpy-rest/mdbootstrap/css/mdb.min.css" />
-    <link rel="stylesheet" href="rpy-rest/styles.css" />
-  </head>
-  <body>
-    <div class="container">
-      <div class="rpy-div">
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap"/>
+    <link rel="stylesheet" href="rpy-rest/mdbootstrap/css/mdb.min.css"/>
+    <link rel="stylesheet" href="rpy-rest/styles.css"/>
+</head>
+<body>
+<div class="container">
+    <div class="rpy-div">
         <div class="row">
-          <div class="col-md">
-            <div class="text-center"><h5>Sand Art Table</h5></div>
-          </div>
-        </div>
-      </div>
-      <div class="rpy-div">
-        <div class="row">
-            <div class="col-md" style="display: flex; justify-content: center; align-items: center">
-              <div id="div-gantry-1-move_to_offset-up"></div>
+            <div class="col-md">
+                <div class="text-center"><h5>Sand Art Table</h5></div>
             </div>
         </div>
-        <div class="row">
-          <div class="col-md" style="display: flex; justify-content: center; align-items: center">
-              <div id="div-gantry-1-move_to_offset-left"></div>
-          </div>
-          <div class="col-md">
-            <div id="div-gantry-1-get_line_plot"></div>
-          </div>
-          <div class="col-md" style="display: flex; justify-content: center; align-items: center">
-              <div id="div-gantry-1-move_to_offset-right"></div>
-          </div>
-        </div>
-        <div class="row">
-            <div class="col-md" style="display: flex; justify-content: center; align-items: center">
-              <div id="div-gantry-1-move_to_offset-down"></div>
-            </div>
-        </div>
-      </div>
-
-      <div class="accordion" id="gantry-accordion">
-
-        <div class="accordion-item">
-          <h2 class="accordion-header" id="main">
-            <button class="accordion-button" type="button" data-mdb-toggle="collapse" data-mdb-target="#collapse-main" aria-expanded="false" aria-controls="collapse-main" style="background-color: aliceblue;">
-              Main
-            </button>
-          </h2>
-          <div id="collapse-main" class="accordion-collapse collapse show" aria-labelledby="main">
-            <div class="accordion-body" style="background-color: #fafafa;">
-              <div class="row">
-                <div class="col-md rpy-parent">
-                  <div id="div-gantry-1-calibrate"></div>
-                  <div id="div-gantry-1-clear_move_buffer"></div>
-                  <div id="div-gantry-1-clear_point_history"></div>
-                  <div id="div-gantry-1-center"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="accordion-item">
-          <h2 class="accordion-header" id="spyro">
-            <button class="accordion-button" type="button" data-mdb-toggle="collapse" data-mdb-target="#collapse-spyro" aria-expanded="false" aria-controls="collapse-spyro" style="background-color: aliceblue;">
-              Spyrograph
-            </button>
-          </h2>
-          <div id="collapse-spyro" class="accordion-collapse collapse show" aria-labelledby="spyro">
-            <div class="accordion-body" style="background-color: #fafafa;">
-              <div class="row">
-                <div class="col-md">
-                  <div id="div-spyro-upper-r"></div>
-                  <div id="div-spyro-lower-r"></div>
-                  <div id="div-spyro-d"></div>
-                  <div id="div-spyro-theta_start"></div>
-                  <div id="div-spyro-theta_stop"></div>
-                  <div id="div-spyro-theta_step"></div>
-                  <div id="div-spyro-scale"></div>
-                  <div id="div-spyro-mm_per_sec"></div>
-                  <div id="div-gantry-1-trace_spyrograph_from_params"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
-    <script type="text/javascript" src="rpy-rest/mdbootstrap/js/mdb.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.4.1.js"></script>
-    <script>$("#div-gantry-1-move_to_offset-up").load("gantry-1-move_to_offset-up.html");</script>
-    <script>$("#div-gantry-1-move_to_offset-left").load("gantry-1-move_to_offset-left.html");</script>
-    <script>$("#div-gantry-1-move_to_offset-right").load("gantry-1-move_to_offset-right.html");</script>
-    <script>$("#div-gantry-1-move_to_offset-down").load("gantry-1-move_to_offset-down.html");</script>
-    <script>$("#div-gantry-1-get_line_plot").load("gantry-1-get_line_plot.html");</script>
-    <script>$("#div-gantry-1-calibrate").load("gantry-1-calibrate.html");</script>
-    <script>$("#div-gantry-1-clear_move_buffer").load("gantry-1-clear_move_buffer.html");</script>
-    <script>$("#div-gantry-1-clear_point_history").load("gantry-1-clear_point_history.html");</script>
-    <script>$("#div-gantry-1-center").load("gantry-1-center.html");</script>
-    <script>$("#div-spyro-upper-r").load("spyro-upper-r.html");</script>
-    <script>$("#div-spyro-lower-r").load("spyro-lower-r.html");</script>
-    <script>$("#div-spyro-d").load("spyro-d.html");</script>
-    <script>$("#div-spyro-theta_start").load("spyro-theta_start.html");</script>
-    <script>$("#div-spyro-theta_stop").load("spyro-theta_stop.html");</script>
-    <script>$("#div-spyro-theta_step").load("spyro-theta_step.html");</script>
-    <script>$("#div-spyro-scale").load("spyro-scale.html");</script>
-    <script>$("#div-spyro-mm_per_sec").load("spyro-mm_per_sec.html");</script>
-    <script>$("#div-gantry-1-trace_spyrograph_from_params").load("gantry-1-trace_spyrograph_from_params.html");</script>
-  </body>
+    <div class="accordion" id="gantry-accordion">
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="setup">
+                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-setup" aria-expanded="false" aria-controls="collapse-setup"
+                        style="background-color: aliceblue;">
+                    Setup
+                </button>
+            </h2>
+            <div id="collapse-setup" class="accordion-collapse collapse show" aria-labelledby="setup">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md rpy-parent">
+                            <div id="div-gantry-1-calibrate"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="main">
+                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-main" aria-expanded="false" aria-controls="collapse-main"
+                        style="background-color: aliceblue;">
+                    Main
+                </button>
+            </h2>
+            <div id="collapse-main" class="accordion-collapse collapse show" aria-labelledby="main">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+                            <div id="div-gantry-1-move_to_offset-up"></div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+                            <div id="div-gantry-1-move_to_offset-left"></div>
+                        </div>
+                        <div class="col-md">
+                            <div id="div-gantry-1-get_line_plot"></div>
+                        </div>
+                        <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+                            <div id="div-gantry-1-move_to_offset-right"></div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+                            <div id="div-gantry-1-move_to_offset-down"></div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md rpy-parent">
+                            <div id="div-gantry-1-center"></div>
+                            <div id="div-gantry-1-clear_move_buffer"></div>
+                            <div id="div-gantry-1-clear_point_history"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="spyro">
+                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-spyro" aria-expanded="false" aria-controls="collapse-spyro"
+                        style="background-color: aliceblue;">
+                    Spyrograph
+                </button>
+            </h2>
+            <div id="collapse-spyro" class="accordion-collapse collapse show" aria-labelledby="spyro">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md">
+                            <div id="div-spyro-upper-r"></div>
+                            <div id="div-spyro-lower-r"></div>
+                            <div id="div-spyro-d"></div>
+                            <div id="div-spyro-theta_start"></div>
+                            <div id="div-spyro-theta_stop"></div>
+                            <div id="div-spyro-theta_step"></div>
+                            <div id="div-spyro-scale"></div>
+                            <div id="div-spyro-mm_per_sec"></div>
+                            <div id="div-gantry-1-trace_spyrograph_from_params"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="rpy-rest/mdbootstrap/js/mdb.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.4.1.js"></script>
+
+<script>$("#div-gantry-1-move_to_offset-up").load("gantry-1-move_to_offset-up.html");</script>
+<script>$("#div-gantry-1-move_to_offset-left").load("gantry-1-move_to_offset-left.html");</script>
+<script>$("#div-gantry-1-move_to_offset-right").load("gantry-1-move_to_offset-right.html");</script>
+<script>$("#div-gantry-1-move_to_offset-down").load("gantry-1-move_to_offset-down.html");</script>
+<script>$("#div-gantry-1-get_line_plot").load("gantry-1-get_line_plot.html");</script>
+<script>$("#div-gantry-1-center").load("gantry-1-center.html");</script>
+<script>$("#div-gantry-1-clear_move_buffer").load("gantry-1-clear_move_buffer.html");</script>
+<script>$("#div-gantry-1-clear_point_history").load("gantry-1-clear_point_history.html");</script>
+
+<script>$("#div-gantry-1-calibrate").load("gantry-1-calibrate.html");</script>
+
+<script>$("#div-spyro-upper-r").load("spyro-upper-r.html");</script>
+<script>$("#div-spyro-lower-r").load("spyro-lower-r.html");</script>
+<script>$("#div-spyro-d").load("spyro-d.html");</script>
+<script>$("#div-spyro-theta_start").load("spyro-theta_start.html");</script>
+<script>$("#div-spyro-theta_stop").load("spyro-theta_stop.html");</script>
+<script>$("#div-spyro-theta_step").load("spyro-theta_step.html");</script>
+<script>$("#div-spyro-scale").load("spyro-scale.html");</script>
+<script>$("#div-spyro-mm_per_sec").load("spyro-mm_per_sec.html");</script>
+<script>$("#div-gantry-1-trace_spyrograph_from_params").load("gantry-1-trace_spyrograph_from_params.html");</script>
+</body>
 </html>
