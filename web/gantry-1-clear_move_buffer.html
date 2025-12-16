@@ -3,8 +3,9 @@
 import {rest_host, rest_port} from "./globals.js";
 const gantry_1_clear_move_buffer = $("#gantry-1-clear_move_buffer");
 function on_press_clear_move_buffer () {
+  let dyn_args_query = "";
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/clear_move_buffer?",
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/clear_move_buffer?" + dyn_args_query,
     type: "GET"
   });
 }

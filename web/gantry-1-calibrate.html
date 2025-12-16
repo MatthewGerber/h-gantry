@@ -3,8 +3,9 @@
 import {rest_host, rest_port} from "./globals.js";
 const gantry_1_calibrate = $("#gantry-1-calibrate");
 function on_press_calibrate () {
+  let dyn_args_query = "";
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/calibrate?mm_per_sec=float:10.0",
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/calibrate?mm_per_sec=float:10.0" + dyn_args_query,
     type: "GET"
   });
 }

@@ -3,8 +3,9 @@
 import {rest_host, rest_port} from "./globals.js";
 const gantry_1_center = $("#gantry-1-center");
 function on_press_center () {
+  let dyn_args_query = "";
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/center?mm_per_sec=float:10.0&block=bool:True&check_bounds=bool:False",
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/center?mm_per_sec=float:10.0&block=bool:True&check_bounds=bool:False" + dyn_args_query,
     type: "GET"
   });
 }
