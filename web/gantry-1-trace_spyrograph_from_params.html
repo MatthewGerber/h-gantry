@@ -6,19 +6,19 @@ function on_press_trace_spyrograph_from_params () {
   let dyn_args_query = "";
   let dyn_arg_value = document.getElementById("spyro-upper-r").value;
   dyn_args_query = dyn_args_query + "R=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-lower-r").value;
+  dyn_arg_value = document.getElementById("spyro-lower-r").value;
   dyn_args_query = dyn_args_query + "r=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-d").value;
+  dyn_arg_value = document.getElementById("spyro-d").value;
   dyn_args_query = dyn_args_query + "d=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-theta_start").value;
+  dyn_arg_value = document.getElementById("spyro-theta_start").value;
   dyn_args_query = dyn_args_query + "theta_start=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-theta_stop").value;
+  dyn_arg_value = document.getElementById("spyro-theta_stop").value;
   dyn_args_query = dyn_args_query + "theta_stop=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-theta_step").value;
+  dyn_arg_value = document.getElementById("spyro-theta_step").value;
   dyn_args_query = dyn_args_query + "theta_step=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-scale").value;
+  dyn_arg_value = document.getElementById("spyro-scale").value;
   dyn_args_query = dyn_args_query + "scale=float:" + dyn_arg_value;
-  let dyn_arg_value = document.getElementById("spyro-mm_per_sec").value;
+  dyn_arg_value = document.getElementById("spyro-mm_per_sec").value;
   dyn_args_query = dyn_args_query + "mm_per_sec=float:" + dyn_arg_value;
   $.ajax({
     url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/trace_spyrograph_from_params?" + dyn_args_query,
