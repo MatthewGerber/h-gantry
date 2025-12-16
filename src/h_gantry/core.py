@@ -907,35 +907,91 @@ class HGantry(Component):
         """
 
         R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-R',
-            'Spyrograph:  R',
-            "350.0",
+            'spyro-upper-r',
+            'R:  Radius of the fixed circle',
+            '350.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        r_textbox_id, r_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-lower-r',
+            'r:  Radius of the rolling circle',
+            '200.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        d_textbox_id, d_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-d',
+            'd:  Distance of the trace point from the rolling circle.',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-theta_start',
+            'Theta start',
+            '0.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-theta_stop',
+            'Theta stop',
+            f'{2.0 * math.pi}',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-theta_step',
+            'Theta step',
+            '0.01',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        scale_textbox_id, scale_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-scale',
+            'Scale',
+            '0.25',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'spyro-mm_per_sec',
+            'mm/sec',
+            '10.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         spyrograph_args = [
             ('R', float, f'{R_textbox_id}'),
-            # ('r', float, f'{}'
-            # 'd': 100.0,
-            # 'theta_start': 0.0,
-            # 'theta_stop': 2.0 * math.pi,
-            # 'theta_step': 0.01,
-            # 'scale': 0.25,
-            # 'mm_per_sec': 20.0
+            ('r', float, f'{r_textbox_id}'),
+            ('d', float, f'{d_textbox_id}'),
+            ('theta_start', float, f'{theta_start_textbox_id}'),
+            ('theta_stop', float, f'{theta_stop_textbox_id}'),
+            ('theta_step', float, f'{theta_step_textbox_id}'),
+            ('scale', float, f'{scale_textbox_id}'),
+            ('mm_per_sec', float, f'{mm_per_sec_textbox_id}')
         ]
 
         return [
-            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, 'Center'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '<', 'left'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '>', 'right'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, '^', 'up'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, 'v', 'down'),
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, None, 'Calibrate'),
+            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
             RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, None, spyrograph_args, None, None, None, 'Draw Spyrograph'),
-            (R_textbox_id, R_textbox_ui_element)
+            (R_textbox_id, R_textbox_ui_element),
+            (r_textbox_id, r_textbox_ui_element),
+            (d_textbox_id, d_textbox_ui_element),
+            (theta_start_textbox_id, theta_start_textbox_ui_element),
+            (theta_stop_textbox_id, theta_stop_textbox_ui_element),
+            (theta_step_textbox_id, theta_step_textbox_ui_element),
+            (scale_textbox_id, scale_textbox_ui_element),
+            (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element)
         ]
 
 
