@@ -905,11 +905,12 @@ class HGantry(Component):
 
         try:
             self.move_to_point_lock.acquire()
-            plt.plot(*zip(*self.point_history), linestyle='-', marker='.', label='Completed')
+            plt.plot(*zip(*self.point_history), linestyle='-', marker='.', markersize=0.05, label='Completed')
             plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Future')
         finally:
             self.move_to_point_lock.release()
 
+        plt.gcf().set_size_inches(8.0, 8.0)
         plt.gca().set_aspect('equal')
         plt.grid()
         plt.legend()
@@ -938,56 +939,56 @@ class HGantry(Component):
 
         R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-upper-r',
-            'R:  Radius of the fixed circle',
+            'Radius (R; mm) of the fixed circle along which the moving circle rolls',
             '350.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         r_textbox_id, r_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-lower-r',
-            'r:  Radius of the rolling circle',
+            'Radius (r; mm) of the rolling circle',
             '200.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         d_textbox_id, d_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-d',
-            'd:  Distance of the trace point from the rolling circle.',
+            'Distance (d; mm) of the trace point from the rolling circle',
             '100.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_start',
-            'Theta start',
+            'Starting position (theta; radians) of the rolling circle',
             '0.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_stop',
-            'Theta stop',
+            'Number of radians (theta_stop) to roll the circle',
             f'{25.0:.1f}',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_step',
-            'Theta step',
+            'Rolling step size (theta_step; radians)',
             '0.01',
             RpyFlask.TextboxType.NUMBER
         )
 
         scale_textbox_id, scale_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-scale',
-            'Scale',
+            'Scaling of the spirograph (greater than 0.0)',
             '0.5',
             RpyFlask.TextboxType.NUMBER
         )
 
         mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-mm_per_sec',
-            'mm/sec',
+            'Speed (mm/sec) to draw the spirograph',
             '10.0',
             RpyFlask.TextboxType.NUMBER
         )
