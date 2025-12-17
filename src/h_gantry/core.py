@@ -781,7 +781,7 @@ class HGantry(Component):
         else:
             self.clear_move_buffer()
 
-    def trace_spyrograph_from_params(
+    def trace_spirograph_from_params(
             self,
             R: float,
             r: float,
@@ -793,7 +793,7 @@ class HGantry(Component):
             mm_per_sec: float
     ):
         """
-        Trace a spyrograph from parameters.
+        Trace a spirograph from parameters.
 
         :param R: Radius of the fixed circle.
         :param r: Radius of the rolling circle.
@@ -814,7 +814,7 @@ class HGantry(Component):
             theta_step=theta_step
         ).scale(scale)
 
-        self.trace_spyrograph(
+        self.trace_spirograph(
             g,
             (self.x, self.y),
             mm_per_sec,
@@ -823,7 +823,7 @@ class HGantry(Component):
             True
         )
 
-    def trace_spyrograph(
+    def trace_spirograph(
             self,
             g: _Trochoid,
             center: Tuple[float, float],
@@ -833,24 +833,24 @@ class HGantry(Component):
             check_bounds: bool
     ) -> _Trochoid:
         """
-        Trace a spyrograph object.
+        Trace a spirograph object.
 
-        :param g: Spyrograph.
+        :param g: Spirograph.
         :param center: Location of center.
         :param mm_per_sec: Speed.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
-        :return: Resulting spyrograph, which might be scaled and translated.
+        :return: Resulting spirograph, which might be scaled and translated.
         """
 
         if g.max_x - g.min_x > 0.99 * self.left_right_mm:
             g = g.scale(0.99 * self.left_right_mm / (g.max_x - g.min_x))
-            logging.warning('Spyrograph x out of bounds. Rescaled.')
+            logging.warning('Spirograph x out of bounds. Rescaled.')
 
         if g.max_y - g.min_y > 0.99 * self.bottom_top_mm:
             g = g.scale(0.99 * self.bottom_top_mm / (g.max_y - g.min_y))
-            logging.warning('Spyrograph y out of bounds. Rescaled.')
+            logging.warning('Spirograph y out of bounds. Rescaled.')
 
         center_x, center_y = center
         half_width = (g.max_x - g.min_x) / 2.0
@@ -859,7 +859,7 @@ class HGantry(Component):
         bottom_border = center_y - half_height
         g = g.translate(left_border - g.min_x, bottom_border - g.min_y)
         logging.info(
-            f'Tracing spyrograph within bounds:  ({g.min_x:.3f},{g.min_y:.3f}) (LL) ({g.max_x:.3f},{g.max_y:.3f}) (UR)'
+            f'Tracing spirograph within bounds:  ({g.min_x:.3f},{g.min_y:.3f}) (LL) ({g.max_x:.3f},{g.max_y:.3f}) (UR)'
         )
 
         self.move_to_points(
@@ -905,11 +905,12 @@ class HGantry(Component):
 
         try:
             self.move_to_point_lock.acquire()
-            plt.plot(*zip(*self.point_history), linestyle='-', marker='o', label='Completed')
+            plt.plot(*zip(*self.point_history), linestyle='-', marker='.', label='Completed')
             plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Future')
         finally:
             self.move_to_point_lock.release()
 
+        plt.gca().set_aspect('equal')
         plt.grid()
         plt.legend()
         plt.xlim(0.0, self.left_right_mm)
@@ -936,62 +937,62 @@ class HGantry(Component):
         """
 
         R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-upper-r',
+            'spiro-upper-r',
             'R:  Radius of the fixed circle',
             '350.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         r_textbox_id, r_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-lower-r',
+            'spiro-lower-r',
             'r:  Radius of the rolling circle',
             '200.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         d_textbox_id, d_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-d',
+            'spiro-d',
             'd:  Distance of the trace point from the rolling circle.',
             '100.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-theta_start',
+            'spiro-theta_start',
             'Theta start',
             '0.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-theta_stop',
+            'spiro-theta_stop',
             'Theta stop',
-            f'{5.0 * math.pi:.1f}',
+            f'{25.0:.1f}',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-theta_step',
+            'spiro-theta_step',
             'Theta step',
             '0.01',
             RpyFlask.TextboxType.NUMBER
         )
 
         scale_textbox_id, scale_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-scale',
+            'spiro-scale',
             'Scale',
-            '0.25',
+            '0.5',
             RpyFlask.TextboxType.NUMBER
         )
 
         mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
-            'spyro-mm_per_sec',
+            'spiro-mm_per_sec',
             'mm/sec',
             '10.0',
             RpyFlask.TextboxType.NUMBER
         )
 
-        spyrograph_args = [
+        spirograph_args = [
             ('R', float, f'{R_textbox_id}'),
             ('r', float, f'{r_textbox_id}'),
             ('d', float, f'{d_textbox_id}'),
@@ -1012,7 +1013,7 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.trace_spyrograph_from_params, None, spyrograph_args, None, None, None, 'Draw Spyrograph'),
+            RpyFlask.get_button(self.id, self.trace_spirograph_from_params, None, spirograph_args, None, None, None, 'Draw'),
             (R_textbox_id, R_textbox_ui_element),
             (r_textbox_id, r_textbox_ui_element),
             (d_textbox_id, d_textbox_ui_element),

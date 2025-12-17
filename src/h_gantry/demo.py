@@ -111,7 +111,7 @@ def main():
     # )
     # g = g.scale(0.25)
     # g.plot(marker='.')
-    # gantry.trace_spyrograph(
+    # gantry.trace_spirograph(
     #     g,
     #     (gantry.x, gantry.y),
     #     100.0,
