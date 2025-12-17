@@ -910,11 +910,10 @@ class HGantry(Component):
         finally:
             self.move_to_point_lock.release()
 
-        plt.axis('equal')
         plt.grid()
         plt.legend()
-        plt.xlim(0.0, self.left_right_mm)  # a little extra for the marker
-        plt.ylim(0.0, self.bottom_top_mm)  # a little extra for the marker
+        plt.xlim(0.0, self.left_right_mm)
+        plt.ylim(0.0, self.bottom_top_mm)
         plt.xlabel('mm')
         plt.ylabel('mm')
         plt.tight_layout()
@@ -967,7 +966,7 @@ class HGantry(Component):
         theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
             'spyro-theta_stop',
             'Theta stop',
-            f'{2.0 * math.pi}',
+            f'{5.0 * math.pi:.1f}',
             RpyFlask.TextboxType.NUMBER
         )
 
