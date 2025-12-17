@@ -715,7 +715,7 @@ class HGantry(Component):
             check_bounds: bool
     ):
         """
-        Trace a list of points.
+        Move through a list of points.
 
         :param points: Points.
         :param mm_per_sec: Speed in mm per second.
@@ -781,7 +781,7 @@ class HGantry(Component):
         else:
             self.clear_move_buffer()
 
-    def trace_spirograph_from_params(
+    def draw_spirograph_from_params(
             self,
             R: float,
             r: float,
@@ -793,7 +793,7 @@ class HGantry(Component):
             mm_per_sec: float
     ):
         """
-        Trace a spirograph from parameters.
+        Draw a spirograph from parameters.
 
         :param R: Radius of the fixed circle.
         :param r: Radius of the rolling circle.
@@ -814,7 +814,7 @@ class HGantry(Component):
             theta_step=theta_step
         ).scale(scale)
 
-        self.trace_spirograph(
+        self.draw_spirograph(
             g,
             (self.x, self.y),
             mm_per_sec,
@@ -823,7 +823,7 @@ class HGantry(Component):
             True
         )
 
-    def trace_spirograph(
+    def draw_spirograph(
             self,
             g: _Trochoid,
             center: Tuple[float, float],
@@ -833,7 +833,7 @@ class HGantry(Component):
             check_bounds: bool
     ) -> _Trochoid:
         """
-        Trace a spirograph object.
+        Draw a spirograph object.
 
         :param g: Spirograph.
         :param center: Location of center.
@@ -874,6 +874,48 @@ class HGantry(Component):
             self.clear_move_buffer()
 
         return g
+
+    def draw_spiral(
+            self,
+            center: Tuple[float, float],
+            outer_diameter_mm: float,
+            loop_spacing_mm: float,
+            step_degrees: float,
+            mm_per_sec: float,
+            return_to_current_position: bool,
+            block: bool,
+            check_bounds: bool
+    ):
+        """
+        Draw a spiral.
+
+        :param center: Location of center.
+        :param outer_diameter_mm: Outer diameter (mm) of the spiral.
+        :param loop_spacing_mm: Loop spacing (mm).
+        :param step_degrees: Step degrees.
+        :param mm_per_sec: Speed.
+        :param return_to_current_position: Whether to return to current position.
+        :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        """
+
+        radius = outer_diameter_mm / 2.0
+        turn_count = radius / loop_spacing_mm
+        turn_radians = turn_count * 2.0 * math.pi
+        step_radians = math.radians(step_degrees)
+        spacing_per_radian = loop_spacing_mm / (2.0 * math.pi)
+
+        center_x, center_y = center
+        points = [center]
+        for theta in np.arange(0.0, turn_radians + step_radians, step_radians):
+
+            polar_r = spacing_per_radian * theta
+            cart_x = polar_r * math.cos(theta) + center_x
+            cart_y = polar_r * math.sin(theta) + center_y
+            points.append((cart_x, cart_y))
+
+        self.move_to_points(points, mm_per_sec, return_to_current_position, block, check_bounds)
+
 
     def enable(
             self
@@ -1014,7 +1056,7 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.trace_spirograph_from_params, None, spirograph_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, spirograph_args, None, None, None, 'Draw'),
             (R_textbox_id, R_textbox_ui_element),
             (r_textbox_id, r_textbox_ui_element),
             (d_textbox_id, d_textbox_ui_element),
