@@ -225,6 +225,7 @@ class HGantry(Component):
         self.move_buffer_min_len = 5
 
         self.point_history: List[Tuple[float, float]] = []
+        self.enabled = True
 
     def joystick_move(
             self,
@@ -322,7 +323,8 @@ class HGantry(Component):
                     'x': self.x,
                     'y': self.y,
                     'left_right_mm': self.left_right_mm,
-                    'bottom_top_mm': self.bottom_top_mm
+                    'bottom_top_mm': self.bottom_top_mm,
+                    'enabled': self.enabled
                 }))
         else:
             logging.warning('Not saving gantry state.')
@@ -429,6 +431,9 @@ class HGantry(Component):
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
+        self.clear_point_history()
+        self.point_history = [(self.x, self.y)]
+
     def get_move_to(
             self,
             x: float,
@@ -488,6 +493,11 @@ class HGantry(Component):
 
             if check_bounds:
                 self.assert_point_in_bounds(x, y)
+
+            # if disabled, then add to point history but do nothing else.
+            if not self.enabled:
+                self.point_history.append((x, y))
+                return True
 
             # calculate x steps (left/right) and y steps (down/up) to move
             move_x_mm, move_y_mm = self.get_move_to(x, y)
@@ -634,11 +644,11 @@ class HGantry(Component):
             self.x += move_x_mm
             self.y += move_y_mm
 
-            return succeeded_without_limit
-
         # ensure lock is released
         finally:
             self.move_to_point_lock.release()
+
+        return succeeded_without_limit
 
     def clear_move_buffer(
             self
@@ -834,6 +844,14 @@ class HGantry(Component):
         :return: Resulting spyrograph, which might be scaled and translated.
         """
 
+        if g.max_x - g.min_x > 0.99 * self.left_right_mm:
+            g = g.scale(0.99 * self.left_right_mm / (g.max_x - g.min_x))
+            logging.warning('Spyrograph x out of bounds. Rescaled.')
+
+        if g.max_y - g.min_y > 0.99 * self.bottom_top_mm:
+            g = g.scale(0.99 * self.bottom_top_mm / (g.max_y - g.min_y))
+            logging.warning('Spyrograph y out of bounds. Rescaled.')
+
         center_x, center_y = center
         half_width = (g.max_x - g.min_x) / 2.0
         left_border = center_x - half_width
@@ -843,14 +861,6 @@ class HGantry(Component):
         logging.info(
             f'Tracing spyrograph within bounds:  ({g.min_x:.3f},{g.min_y:.3f}) (LL) ({g.max_x:.3f},{g.max_y:.3f}) (UR)'
         )
-
-        if g.max_x > self.left_right_mm:
-            g = g.scale(1.0 - g.max_x / self.left_right_mm)
-            logging.warning('Spyrograph x out of bounds. Rescaled.')
-
-        if g.max_y > self.bottom_top_mm:
-            g = g.scale(1.0 - g.max_y / self.bottom_top_mm)
-            logging.warning('Spyrograph y out of bounds. Rescaled.')
 
         self.move_to_points(
             list(zip(g.x, g.y)),
@@ -864,6 +874,25 @@ class HGantry(Component):
             self.clear_move_buffer()
 
         return g
+
+    def enable(
+            self
+    ):
+        """
+        Enable the gantry. Moves will be executed and state will be updated.
+        """
+
+        self.enabled = True
+
+    def disable(
+            self
+    ):
+        """
+        Disable the gantry. Move points will be tracked and drawn in the line plot; however, moves will not actually be
+        executed, and the state will not be updated.
+        """
+
+        self.enabled = False
 
     def get_line_plot(
             self
@@ -881,10 +910,11 @@ class HGantry(Component):
         finally:
             self.move_to_point_lock.release()
 
+        plt.axis('equal')
         plt.grid()
         plt.legend()
-        plt.xlim(0.0, self.left_right_mm)
-        plt.ylim(0.0, self.bottom_top_mm)
+        plt.xlim(0.0, self.left_right_mm)  # a little extra for the marker
+        plt.ylim(0.0, self.bottom_top_mm)  # a little extra for the marker
         plt.xlabel('mm')
         plt.ylabel('mm')
         plt.tight_layout()
@@ -991,7 +1021,8 @@ class HGantry(Component):
             (theta_stop_textbox_id, theta_stop_textbox_ui_element),
             (theta_step_textbox_id, theta_step_textbox_ui_element),
             (scale_textbox_id, scale_textbox_ui_element),
-            (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element)
+            (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element),
+            RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
         ]
 
 
