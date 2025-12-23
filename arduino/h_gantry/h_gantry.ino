@@ -12,41 +12,62 @@ typedef union {
 } floatbytes;
 
 // stepper driver configuration
-const byte STEPPER_NUM_PHASES = 4;  // number of output pins driving the stepper motor. each phase corresponds to a single output pin being driven, which also corresponds to a single step.
-const byte STEPPER_DRIVES_PER_STEP = 2;  // number of drives per phase (step). this depends on the driver configuration vis-a-vis fractional steps (microstepping).
-const byte DRIVE_SEQUENCE_LEN = STEPPER_NUM_PHASES * STEPPER_DRIVES_PER_STEP;
-const byte DRIVE_SEQUENCE[][DRIVE_SEQUENCE_LEN] = {
-  { HIGH, LOW, LOW, LOW },
-  { HIGH, HIGH, LOW, LOW },
-  { LOW, HIGH, LOW, LOW },
-  { LOW, HIGH, HIGH, LOW },
-  { LOW, LOW, HIGH, LOW },
-  { LOW, LOW, HIGH, HIGH },
-  { LOW, LOW, LOW, HIGH },
-  { HIGH, LOW, LOW, HIGH }
+const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins driving the stepper motor
+const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
+const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
+const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
+  { LOW },
+  { HIGH }
 };
-
-// here is the half-stepper drive sequence for the ULN2003, which is driven by four output pins (4 phases; 2 drives per step):
-// { HIGH, LOW, LOW, LOW },
-// { HIGH, HIGH, LOW, LOW },
-// { LOW, HIGH, LOW, LOW },
-// { LOW, HIGH, HIGH, LOW },
-// { LOW, LOW, HIGH, LOW },
-// { LOW, LOW, HIGH, HIGH },
-// { LOW, LOW, LOW, HIGH },
-// { HIGH, LOW, LOW, HIGH }
-
-// the A4988 driver (e.g., for nema steppers) is much simpler (1 phase; 2 drives per step):
-// { LOW },
-// { HIGH }
-
-const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving
+const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving
 const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
-const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / (0.25 * float(US_PER_SEC));  // maximum acceleration:  slowest to fastest within 0.25s
+const float FULL_ACCEL_INTERVAL_SEC = 0.25;
+const byte MICROSTEP_HALF_OUTPUT_PIN = 9;
+
+// config for the ULN2003, which is driven by four output pins (4 driver pins @ 2 drives per step):
+// const byte STEPPER_DRIVER_NUM_IN_PINS = 4;  // number of pins driving the stepper motor
+// const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
+// const byte DRIVE_SEQUENCE_LEN = 8;  // 4 pins @ half steps
+// const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
+//   { HIGH, LOW, LOW, LOW },
+//   { HIGH, HIGH, LOW, LOW },
+//   { LOW, HIGH, LOW, LOW },
+//   { LOW, HIGH, HIGH, LOW },
+//   { LOW, LOW, HIGH, LOW },
+//   { LOW, LOW, HIGH, HIGH },
+//   { LOW, LOW, LOW, HIGH },
+//   { HIGH, LOW, LOW, HIGH }
+// };
+// const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving
+// const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
+// const float FULL_ACCEL_INTERVAL_SEC = 0.25;
+
+// config for the A4988 driver (e.g., for nema steppers):
+// const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins driving the stepper motor
+// const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
+// const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
+// const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
+//   { LOW },
+//   { HIGH }
+// };
+// const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving
+// const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
+// const float FULL_ACCEL_INTERVAL_SEC = 0.1;
+// const byte MICROSTEP_HALF_OUTPUT_PIN = 9;
+
+// MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1
+// Low	Low	  Low	Full step
+// High	Low   Low	Half step
+// Low	High  Low	Quarter step
+// High	High	Low	Eighth step
+// High	High	High	Sixteenth step
+
+const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));  // maximum acceleration:  slowest to fastest within given interval
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;
-byte left_driver_pins[STEPPER_NUM_PHASES];
+byte left_driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
+int left_driver_dir_pin;  // -1 for no direction pin
 long left_stepper_drive_idx;
 long left_stepper_drive_target;
 int left_stepper_drive_increment;
@@ -59,7 +80,8 @@ bool left_stepper_inited = false;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
-byte right_driver_pins[STEPPER_NUM_PHASES];
+byte right_driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
+int right_driver_dir_pin;  // -1 for no direction pin
 long right_stepper_drive_idx;
 long right_stepper_drive_target;
 int right_stepper_drive_increment;
@@ -153,6 +175,11 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
     left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;
+
+    if (left_driver_dir_pin >= 0) {
+      digitalWrite(left_driver_dir_pin, left_stepper_drive_increment < 0 ? LOW : HIGH);
+    }
+
     left_stepper_limit_skipped_drives = 0;
     if (left_stepper_us_per_drive == 0) {
       left_stepper_us_per_drive = MAX_US_PER_DRIVE;
@@ -174,6 +201,11 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
     right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
+
+    if (right_driver_dir_pin >= 0) {
+      digitalWrite(right_driver_dir_pin, right_stepper_drive_increment < 0 ? LOW : HIGH);
+    }
+
     right_stepper_limit_skipped_drives = 0;
     if (right_stepper_us_per_drive == 0) {
       right_stepper_us_per_drive = MAX_US_PER_DRIVE;
@@ -200,7 +232,7 @@ const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
-const size_t CMD_INIT_STEPPER_ARGS_LEN = 4;
+const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 2;  // 1 bytes per pin plus two bytes for optional direction pin, which is -1 for no direction pin.
 const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 
 // command:  step
@@ -304,28 +336,28 @@ byte mod(long x, byte y) {
  */
 void drive_left_stepper(unsigned long curr_time_us) {
   byte drive_sequence_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
-  for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
     digitalWrite(left_driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
   }
   left_stepper_previous_drive_us = curr_time_us;
 }
 
 void stop_left_stepper() {
-  for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
     digitalWrite(left_driver_pins[pin_idx], LOW);
   }
 }
 
 void drive_right_stepper(unsigned long curr_time_us) {
   byte drive_sequence_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);
-  for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
     digitalWrite(right_driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
   }
   right_stepper_previous_drive_us = curr_time_us;
 }
 
 void stop_right_stepper() {
-  for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
     digitalWrite(right_driver_pins[pin_idx], LOW);
   }
 }
@@ -333,7 +365,7 @@ void stop_right_stepper() {
 void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     write_byte(stepper_id);
     floatbytes limit_skipped_steps;
-    limit_skipped_steps.number = limit_skipped_drives / float(STEPPER_DRIVES_PER_STEP);
+    limit_skipped_steps.number = limit_skipped_drives / float(NUM_MICROSTEPS);
     write_float(limit_skipped_steps);
     SerialUART.flush();
   }
@@ -341,6 +373,10 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
 void setup() {
   // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
+
+  // configure microstepping.
+  pinMode(MICROSTEP_HALF_OUTPUT_PIN, OUTPUT);
+  digitalWrite(MICROSTEP_HALF_OUTPUT_PIN, HIGH);
 }
 
 void loop() {
@@ -524,13 +560,21 @@ void loop() {
     // initialize a component
     if (command == CMD_INIT) {
       if (component_id == LEFT_STEPPER_ID) {
+
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
         SerialUART.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
-        for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+
+        for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
           byte pin = args[pin_idx];
           left_driver_pins[pin_idx] = pin;
           pinMode(pin, OUTPUT);
         }
+
+        left_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        if (left_driver_dir_pin >= 0) {
+          pinMode(left_driver_dir_pin, OUTPUT);
+        }
+
         left_stepper_drive_idx = 0;
         left_stepper_drive_target = left_stepper_drive_idx;
         left_stepper_drive_increment = 0;
@@ -541,13 +585,21 @@ void loop() {
         write_bool(true);
       }
       else if (component_id == RIGHT_STEPPER_ID) {
+
         byte args[CMD_INIT_STEPPER_ARGS_LEN];
         SerialUART.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
-        for (byte pin_idx = 0; pin_idx < STEPPER_NUM_PHASES; ++pin_idx) {
+
+        for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
           byte pin = args[pin_idx];
           right_driver_pins[pin_idx] = pin;
           pinMode(pin, OUTPUT);
         }
+
+        right_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        if (right_driver_dir_pin >= 0) {
+          pinMode(right_driver_dir_pin, OUTPUT);
+        }
+
         right_stepper_drive_idx = 0;
         right_stepper_drive_target = right_stepper_drive_idx;
         right_stepper_drive_increment = 0;
@@ -579,7 +631,7 @@ void loop() {
 
       // left stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int left_stepper_num_drives = bytes_to_int(args, 2) * STEPPER_DRIVES_PER_STEP;
+      int left_stepper_num_drives = bytes_to_int(args, 2) * NUM_MICROSTEPS;
       unsigned long left_stepper_us_per_drive = 0;
       if (left_stepper_num_drives != 0) {
         unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
@@ -591,7 +643,7 @@ void loop() {
 
       // right stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int right_stepper_num_drives = bytes_to_int(args, 8) * STEPPER_DRIVES_PER_STEP;
+      int right_stepper_num_drives = bytes_to_int(args, 8) * NUM_MICROSTEPS;
       unsigned long right_stepper_us_per_drive = 0;
       if (right_stepper_num_drives != 0) {
         unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);
