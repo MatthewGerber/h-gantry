@@ -13,16 +13,16 @@ from typing import Tuple, List, Optional, Callable, NamedTuple, Union
 
 import numpy as np
 from matplotlib import pyplot as plt
-from raspberry_py.gpio import CkPin, Component
 from smbus2 import SMBus
 from spyrograph import Hypotrochoid
 # noinspection PyProtectedMember
 from spyrograph.core._trochoid import _Trochoid
 
+from raspberry_py.gpio import CkPin, Component
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
-from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import RpyFlask
 
 
@@ -151,12 +151,12 @@ class HGantry(Component):
         self.move_to_point_lock = Lock()
 
         left_driver = self.left_stepper.driver
-        assert isinstance(left_driver, StepperMotorDriverArduinoUln2003)
+        assert isinstance(left_driver, StepperMotorDriverArduinoA4988)
         self.left_driver = left_driver
         assert self.left_driver.asynchronous
 
         right_driver = self.right_stepper.driver
-        assert isinstance(right_driver, StepperMotorDriverArduinoUln2003)
+        assert isinstance(right_driver, StepperMotorDriverArduinoA4988)
         self.right_driver = right_driver
         assert self.right_driver.asynchronous
 
