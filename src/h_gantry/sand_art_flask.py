@@ -10,7 +10,7 @@ from serial import Serial
 
 from h_gantry.core import HGantry
 
-STEPPER_POLES = 32
+STEPPER_FULL_STEPS_PER_REVOLUTION = 32
 STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 64.0
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +27,7 @@ locking_serial = LockingSerial(
 )
 
 left_stepper = Stepper(
-    poles=STEPPER_POLES,
+    full_steps_per_revolution=STEPPER_FULL_STEPS_PER_REVOLUTION,
     output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
     driver=StepperMotorDriverArduinoUln2003(
         driver_pin_1=5,
@@ -42,7 +42,7 @@ left_stepper = Stepper(
 )
 
 right_stepper = Stepper(
-    poles=STEPPER_POLES,
+    full_steps_per_revolution=STEPPER_FULL_STEPS_PER_REVOLUTION,
     output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
     driver=StepperMotorDriverArduinoUln2003(
         driver_pin_1=9,

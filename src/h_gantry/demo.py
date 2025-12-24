@@ -1,19 +1,13 @@
-import base64
-import io
 import logging
 import os.path
-import time
 
-import numpy as np
 import serial
-from matplotlib import pyplot as plt
 from serial import Serial
-from spyrograph import Hypotrochoid
 
 from h_gantry.core import HGantry
 from raspberry_py.gpio import setup, cleanup, CkPin
 from raspberry_py.gpio.communication import LockingSerial
-from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 
 
 def main():
@@ -36,17 +30,15 @@ def main():
         throughput_step_size=0.05
     )
 
-    poles = 32
-    output_rotor_ratio = 1.0 / 64.0
+    stepper_full_steps_per_revolution = 200
+    stepper_output_rotor_ratio = 1.0 / 1.0
 
     left_stepper = Stepper(
-        poles=poles,
-        output_rotor_ratio=output_rotor_ratio,
-        driver=StepperMotorDriverArduinoUln2003(
-            driver_pin_1=5,
-            driver_pin_2=6,
-            driver_pin_3=7,
-            driver_pin_4=8,
+        full_steps_per_revolution=stepper_full_steps_per_revolution,
+        output_rotor_ratio=stepper_output_rotor_ratio,
+        driver=StepperMotorDriverArduinoA4988(
+            driver_pin=5,
+            direction_pin=6,
             identifier=0,
             serial=locking_serial,
             asynchronous=True
@@ -55,13 +47,11 @@ def main():
     )
 
     right_stepper = Stepper(
-        poles=poles,
-        output_rotor_ratio=output_rotor_ratio,
-        driver=StepperMotorDriverArduinoUln2003(
-            driver_pin_1=9,
-            driver_pin_2=10,
-            driver_pin_3=11,
-            driver_pin_4=13,
+        full_steps_per_revolution=stepper_full_steps_per_revolution,
+        output_rotor_ratio=stepper_output_rotor_ratio,
+        driver=StepperMotorDriverArduinoA4988(
+            driver_pin=7,
+            direction_pin=8,
             identifier=1,
             serial=locking_serial,
             asynchronous=True
@@ -84,16 +74,16 @@ def main():
     gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 
     gantry.start()
-    # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, True, True)
+    # gantry.move_to_offset_limit(1.0, 1.0, 10.0)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    gantry.calibrate(100.0)
-    # gantry.center(100.0, True, True)
-    # gantry.move_to_top_limit(100.0)
+    gantry.calibrate(10.0)
+    # gantry.center(10.0, True, True)
+    # gantry.move_to_top_limit(10.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
-    # gantry.move_to_points(circle_points, 100.0, True)
+    # gantry.move_to_points(circle_points, 10.0, True)
     # for i in range(30):
     #     gantry.joystick.update_state()
     #     time.sleep(0.5)
@@ -114,7 +104,7 @@ def main():
     # gantry.trace_spirograph(
     #     g,
     #     (gantry.x, gantry.y),
-    #     100.0,
+    #     10.0,
     #     True,
     #     True,
     #     True
