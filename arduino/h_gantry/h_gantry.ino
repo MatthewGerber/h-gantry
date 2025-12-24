@@ -12,20 +12,20 @@ typedef union {
 } floatbytes;
 
 // stepper driver configuration
-const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins driving the stepper motor
+const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver.
 const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
 const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
 const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
   { LOW },
   { HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving
+const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
 const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
 const float FULL_ACCEL_INTERVAL_SEC = 0.25;
-const byte MICROSTEP_HALF_OUTPUT_PIN = 9;
+const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // config for the ULN2003, which is driven by four output pins (4 driver pins @ 2 drives per step):
-// const byte STEPPER_DRIVER_NUM_IN_PINS = 4;  // number of pins driving the stepper motor
+// const byte STEPPER_DRIVER_NUM_IN_PINS = 4;  // number of pins providing input to the stepper motor driver.
 // const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
 // const byte DRIVE_SEQUENCE_LEN = 8;  // 4 pins @ half steps
 // const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
@@ -43,17 +43,17 @@ const byte MICROSTEP_HALF_OUTPUT_PIN = 9;
 // const float FULL_ACCEL_INTERVAL_SEC = 0.25;
 
 // config for the A4988 driver (e.g., for nema steppers):
-// const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins driving the stepper motor
+// const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver.
 // const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
 // const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
 // const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 //   { LOW },
 //   { HIGH }
 // };
-// const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving
+// const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
 // const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
 // const float FULL_ACCEL_INTERVAL_SEC = 0.1;
-// const byte MICROSTEP_HALF_OUTPUT_PIN = 9;
+// const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1
 // Low	Low	  Low	Full step
@@ -181,6 +181,7 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     }
 
     left_stepper_limit_skipped_drives = 0;
+
     if (left_stepper_us_per_drive == 0) {
       left_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
@@ -207,6 +208,7 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     }
 
     right_stepper_limit_skipped_drives = 0;
+
     if (right_stepper_us_per_drive == 0) {
       right_stepper_us_per_drive = MAX_US_PER_DRIVE;
     }
@@ -232,7 +234,7 @@ const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
-const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 2;  // 1 bytes per pin plus two bytes for optional direction pin, which is -1 for no direction pin.
+const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 2;  // 1 byte per pin plus 2 bytes for optional direction pin, which is -1 for no direction pin.
 const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 
 // command:  step
@@ -374,9 +376,9 @@ void setup() {
   // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 
-  // configure microstepping.
-  pinMode(MICROSTEP_HALF_OUTPUT_PIN, OUTPUT);
-  digitalWrite(MICROSTEP_HALF_OUTPUT_PIN, HIGH);
+  // configure microstepping, which is 1,0,0 (half steps)
+  pinMode(MICROSTEP_MS1_OUTPUT_PIN, OUTPUT);
+  digitalWrite(MICROSTEP_MS1_OUTPUT_PIN, HIGH);
 }
 
 void loop() {

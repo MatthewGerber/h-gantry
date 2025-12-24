@@ -1,5 +1,4 @@
 import logging
-import logging
 import os.path
 
 import serial
@@ -75,16 +74,16 @@ def main():
     gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 
     gantry.start()
-    # gantry.move_to_offset_limit(1.0, 1.0, 100.0)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, False)
-    # gantry.move_to_offset(0.0, -10.0, 100.0, True, True)
+    # gantry.move_to_offset_limit(1.0, 1.0, 10.0)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
+    # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    gantry.calibrate(100.0)
-    # gantry.center(100.0, True, True)
-    # gantry.move_to_top_limit(100.0)
+    gantry.calibrate(10.0)
+    # gantry.center(10.0, True, True)
+    # gantry.move_to_top_limit(10.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
-    # gantry.move_to_points(circle_points, 100.0, True)
+    # gantry.move_to_points(circle_points, 10.0, True)
     # for i in range(30):
     #     gantry.joystick.update_state()
     #     time.sleep(0.5)
@@ -105,7 +104,7 @@ def main():
     # gantry.trace_spirograph(
     #     g,
     #     (gantry.x, gantry.y),
-    #     100.0,
+    #     10.0,
     #     True,
     #     True,
     #     True
