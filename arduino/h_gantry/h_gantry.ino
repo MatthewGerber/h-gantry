@@ -19,9 +19,9 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
   { LOW },
   { HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
-const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
-const float FULL_ACCEL_INTERVAL_SEC = 0.25;
+const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving with acceleration
+const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 2000;  // fastest driving directly from a dead stop
+const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
 const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // config for the ULN2003, which is driven by four output pins (4 driver pins @ 2 drives per step):
@@ -38,9 +38,9 @@ const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 //   { LOW, LOW, LOW, HIGH },
 //   { HIGH, LOW, LOW, HIGH }
 // };
-// const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving
-// const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
-// const float FULL_ACCEL_INTERVAL_SEC = 0.25;
+// const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving with acceleration
+// const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
+// const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 
 // config for the A4988 driver (e.g., for nema steppers):
 // const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver.
@@ -50,11 +50,12 @@ const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 //   { LOW },
 //   { HIGH }
 // };
-// const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving
-// const unsigned long MAX_US_PER_DRIVE = 1e6;  // slowest driving
-// const float FULL_ACCEL_INTERVAL_SEC = 0.1;
+// const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving with acceleration
+// const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
+// const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
 // const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
+// Microstep configuration for the A4988
 // MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1
 // Low	Low	  Low	Full step
 // High	Low   Low	Half step
@@ -62,7 +63,7 @@ const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 // High	High	Low	Eighth step
 // High	High	High	Sixteenth step
 
-const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MAX_US_PER_DRIVE - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));  // maximum acceleration:  slowest to fastest within given interval
+const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));  // maximum acceleration:  slowest to fastest within given interval
 
 // left stepper
 const byte LEFT_STEPPER_ID = 0;
@@ -182,13 +183,17 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
 
     left_stepper_limit_skipped_drives = 0;
 
+    left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
+
+    // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
     if (left_stepper_us_per_drive == 0) {
-      left_stepper_us_per_drive = MAX_US_PER_DRIVE;
+      left_stepper_us_per_drive = left_stepper_us_per_drive_target > MIN_US_PER_DRIVE_FROM_STOPPED ? left_stepper_us_per_drive_target : MIN_US_PER_DRIVE_FROM_STOPPED;
     }
+
     if (drive_left_immediately) {
       left_stepper_previous_drive_us = curr_time_us - left_stepper_us_per_drive;
     }
-    left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
+
     left_stepper_previous_acceleration_us = curr_time_us;
   }
 
@@ -209,13 +214,17 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
 
     right_stepper_limit_skipped_drives = 0;
 
+    right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
+
+    // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
     if (right_stepper_us_per_drive == 0) {
-      right_stepper_us_per_drive = MAX_US_PER_DRIVE;
+      right_stepper_us_per_drive = right_stepper_us_per_drive_target > MIN_US_PER_DRIVE_FROM_STOPPED ? right_stepper_us_per_drive_target : MIN_US_PER_DRIVE_FROM_STOPPED;
     }
+
     if (drive_right_immediately) {
       right_stepper_previous_drive_us = curr_time_us - right_stepper_us_per_drive;
     }
-    right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
+
     right_stepper_previous_acceleration_us = curr_time_us;
   }
 

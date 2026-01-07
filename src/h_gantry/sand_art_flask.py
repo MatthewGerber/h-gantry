@@ -4,14 +4,14 @@ import os
 import serial
 from raspberry_py.gpio import CkPin
 from raspberry_py.gpio.communication import LockingSerial
-from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
 from serial import Serial
 
 from h_gantry.core import HGantry
 
-STEPPER_FULL_STEPS_PER_REVOLUTION = 32
-STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 64.0
+STEPPER_FULL_STEPS_PER_REVOLUTION = 200
+STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 1.0
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,11 +29,9 @@ locking_serial = LockingSerial(
 left_stepper = Stepper(
     full_steps_per_revolution=STEPPER_FULL_STEPS_PER_REVOLUTION,
     output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
-    driver=StepperMotorDriverArduinoUln2003(
-        driver_pin_1=5,
-        driver_pin_2=6,
-        driver_pin_3=7,
-        driver_pin_4=8,
+    driver=StepperMotorDriverArduinoA4988(
+        driver_pin=5,
+        direction_pin=6,
         identifier=0,
         serial=locking_serial,
         asynchronous=True
@@ -44,11 +42,9 @@ left_stepper = Stepper(
 right_stepper = Stepper(
     full_steps_per_revolution=STEPPER_FULL_STEPS_PER_REVOLUTION,
     output_rotor_ratio=STEPPER_OUTPUT_ROTOR_RATIO,
-    driver=StepperMotorDriverArduinoUln2003(
-        driver_pin_1=9,
-        driver_pin_2=10,
-        driver_pin_3=11,
-        driver_pin_4=13,
+    driver=StepperMotorDriverArduinoA4988(
+        driver_pin=7,
+        direction_pin=8,
         identifier=1,
         serial=locking_serial,
         asynchronous=True
