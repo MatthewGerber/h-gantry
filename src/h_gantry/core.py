@@ -466,6 +466,48 @@ class HGantry(Component):
                 f'Point ({x}, {y}) is out of bounds [0.0, {self.left_right_mm}], [0.0, {self.bottom_top_mm}].'
             )
 
+    @staticmethod
+    def get_distance_to_offset(
+            x_offset: float,
+            y_offset: float
+    ) -> float:
+        """
+        Get straight-line distance when moving given x and y distances.
+
+        :param x_offset: x distance.
+        :param y_offset: y distance.
+        :return: Straight-line distance.
+        """
+
+        return math.sqrt(x_offset ** 2 + y_offset ** 2)
+
+    @staticmethod
+    def get_distance_between_points(
+            p1: Tuple[float, float],
+            p2: Tuple[float, float]
+    ) -> float:
+        """
+        Get distance between points.
+
+        :param p1: Point 1.
+        :param p2: Point 2.
+        :return: Distance.
+        """
+
+        return HGantry.get_distance_to_offset(p2[0] - p1[0], p2[1] - p1[1])
+
+    def get_distance_to_point(
+            self,
+            point: Tuple[float, float]
+    ) -> float:
+        """
+        Get distance from the gantry's effective current position to a given point.
+
+        :return: Distance (mm).
+        """
+
+        return self.get_distance_to_offset(*self.get_move_to(*point))
+
     def move_to_point(
             self,
             x: float,
@@ -520,7 +562,7 @@ class HGantry(Component):
             right_stepper_steps = int(x_steps - y_steps)
 
             # calculate time to step directly to the new point
-            distance_mm = math.sqrt(move_x_mm ** 2 + move_y_mm ** 2)
+            distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
             # send step command for the joint action of the two steppers, plus a dummy component that will be ignored.
@@ -712,7 +754,8 @@ class HGantry(Component):
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool
+            check_bounds: bool,
+            ignore_moves_shorter_than_mm: float
     ):
         """
         Move through a list of points.
@@ -721,6 +764,7 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :param ignore_moves_shorter_than_mm: Point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to the current position after moving to the points.
         """
 
@@ -733,8 +777,13 @@ class HGantry(Component):
 
         num_points = len(points)
         for i, (x, y) in enumerate(points):
-            logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
-            self.move_to_point(x, y, mm_per_sec, block, check_bounds)
+            distance_mm = self.get_distance_to_point((x, y))
+            diff_from_threshold = distance_mm - ignore_moves_shorter_than_mm
+            if np.isclose(diff_from_threshold, 0.0) or diff_from_threshold < 0.0:
+                logging.debug(f'Skipping non-move point:  {(x, y)}')
+            else:
+                logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
+                self.move_to_point(x, y, mm_per_sec, block, check_bounds)
 
     def move_to_offset(
             self,
@@ -867,7 +916,8 @@ class HGantry(Component):
             mm_per_sec,
             return_to_current_position,
             False,
-            check_bounds
+            check_bounds,
+            10.0
         )
 
         if block:
@@ -914,8 +964,14 @@ class HGantry(Component):
             cart_y = polar_r * math.sin(theta) + center_y
             points.append((cart_x, cart_y))
 
-        self.move_to_points(points, mm_per_sec, return_to_current_position, block, check_bounds)
-
+        self.move_to_points(
+            points,
+            mm_per_sec,
+            return_to_current_position,
+            block,
+            check_bounds,
+            10.0
+        )
 
     def enable(
             self

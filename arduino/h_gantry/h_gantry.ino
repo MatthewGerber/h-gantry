@@ -180,9 +180,7 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     if (left_driver_dir_pin >= 0) {
       digitalWrite(left_driver_dir_pin, left_stepper_drive_increment < 0 ? LOW : HIGH);
     }
-
     left_stepper_limit_skipped_drives = 0;
-
     left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
 
     // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
@@ -211,9 +209,7 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     if (right_driver_dir_pin >= 0) {
       digitalWrite(right_driver_dir_pin, right_stepper_drive_increment < 0 ? LOW : HIGH);
     }
-
     right_stepper_limit_skipped_drives = 0;
-
     right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
 
     // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
@@ -702,7 +698,7 @@ void loop() {
 
     /* if the stepper just completed, then we'll set the drive values but wait the given drive delay to ensure proper 
      * stepper timing in relation to the step that just completed. if the stepper did not just complete, then begin 
-     * driving the steppers immediately since we must have just received a new step command.
+     * driving the steppers immediately since we must have just received a new step command to resume stepping.
     */
     else {
       start_step(next_step, !completed_left_stepper, !completed_right_stepper, curr_time_us);
