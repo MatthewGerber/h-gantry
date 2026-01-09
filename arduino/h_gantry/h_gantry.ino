@@ -13,20 +13,20 @@ typedef union {
 
 // stepper driver configuration
 const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver.
-const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
+const byte DRIVES_PER_STEP = 4;  // 2 drives/microstep * 2 microsteps/step
 const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
 const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
   { LOW },
   { HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving with acceleration
-const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 2000;  // fastest driving directly from a dead stop
-const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
+const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration
+const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1000;  // fastest driving directly from a dead stop
+const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // config for the ULN2003, which is driven by four output pins (4 driver pins @ 2 drives per step):
 // const byte STEPPER_DRIVER_NUM_IN_PINS = 4;  // number of pins providing input to the stepper motor driver.
-// const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
+// const byte DRIVES_PER_STEP = 2;  // 1:  full steps, 2:  half steps
 // const byte DRIVE_SEQUENCE_LEN = 8;  // 4 pins @ half steps
 // const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 //   { HIGH, LOW, LOW, LOW },
@@ -41,19 +41,6 @@ const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 // const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving with acceleration
 // const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
 // const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
-
-// config for the A4988 driver (e.g., for nema steppers):
-// const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver.
-// const byte NUM_MICROSTEPS = 2;  // 1:  full steps, 2:  half steps, 4:  quarter steps, etc.
-// const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping is specified with separate outputs
-// const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
-//   { LOW },
-//   { HIGH }
-// };
-// const unsigned long MIN_US_PER_DRIVE = 500;  // fastest driving with acceleration
-// const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
-// const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
-// const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // Microstep configuration for the A4988
 // MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1
@@ -372,7 +359,7 @@ void stop_right_stepper() {
 void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     write_byte(stepper_id);
     floatbytes limit_skipped_steps;
-    limit_skipped_steps.number = limit_skipped_drives / float(NUM_MICROSTEPS);
+    limit_skipped_steps.number = limit_skipped_drives / float(DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
     SerialUART.flush();
   }
@@ -638,7 +625,7 @@ void loop() {
 
       // left stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int left_stepper_num_drives = bytes_to_int(args, 2) * NUM_MICROSTEPS;
+      int left_stepper_num_drives = bytes_to_int(args, 2) * DRIVES_PER_STEP;
       unsigned long left_stepper_us_per_drive = 0;
       if (left_stepper_num_drives != 0) {
         unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
@@ -650,7 +637,7 @@ void loop() {
 
       // right stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
       // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int right_stepper_num_drives = bytes_to_int(args, 8) * NUM_MICROSTEPS;
+      int right_stepper_num_drives = bytes_to_int(args, 8) * DRIVES_PER_STEP;
       unsigned long right_stepper_us_per_drive = 0;
       if (right_stepper_num_drives != 0) {
         unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 10);

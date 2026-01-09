@@ -529,9 +529,7 @@ class HGantry(Component):
         move was processed by the current call, then the return value will be for that move.
         """
 
-        try:
-
-            self.move_to_point_lock.acquire()
+        with self.move_to_point_lock:
 
             if check_bounds:
                 self.assert_point_in_bounds(x, y)
@@ -561,7 +559,8 @@ class HGantry(Component):
             left_stepper_steps = int(x_steps + y_steps)
             right_stepper_steps = int(x_steps - y_steps)
 
-            # calculate time to step directly to the new point
+            # calculate time to step directly to the new point. the steppers will be moving concurrently, so each should
+            # take the same time, though they will step at different speeds because their number of steps might differ.
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
@@ -686,10 +685,6 @@ class HGantry(Component):
             self.x += move_x_mm
             self.y += move_y_mm
 
-        # ensure lock is released
-        finally:
-            self.move_to_point_lock.release()
-
         return succeeded_without_limit
 
     def clear_move_buffer(
@@ -712,11 +707,8 @@ class HGantry(Component):
         Clear the point history.
         """
 
-        try:
-            self.move_to_point_lock.acquire()
+        with self.move_to_point_lock:
             self.point_history.clear()
-        finally:
-            self.move_to_point_lock.release()
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -780,7 +772,7 @@ class HGantry(Component):
             distance_mm = self.get_distance_to_point((x, y))
             diff_from_threshold = distance_mm - ignore_moves_shorter_than_mm
             if np.isclose(diff_from_threshold, 0.0) or diff_from_threshold < 0.0:
-                logging.debug(f'Skipping non-move point:  {(x, y)}')
+                logging.debug(f'Skipping non-move point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
             else:
                 logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
                 self.move_to_point(x, y, mm_per_sec, block, check_bounds)
@@ -1001,12 +993,9 @@ class HGantry(Component):
         :return: Base-64 encoded image of line plot.
         """
 
-        try:
-            self.move_to_point_lock.acquire()
+        with self.move_to_point_lock:
             plt.plot(*zip(*self.point_history), linestyle='-', marker='.', markersize=0.05, label='Completed')
             plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Future')
-        finally:
-            self.move_to_point_lock.release()
 
         plt.gcf().set_size_inches(8.0, 8.0)
         plt.gca().set_aspect('equal')
@@ -1058,14 +1047,14 @@ class HGantry(Component):
 
         theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_start',
-            'Starting position (theta; radians) of the rolling circle',
+            'Starting position (theta_start; radians) of the rolling circle',
             '0.0',
             RpyFlask.TextboxType.NUMBER
         )
 
         theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_stop',
-            'Number of radians (theta_stop) to roll the circle',
+            'Number of radians (theta_stop; radians) to roll the circle',
             f'{25.0:.1f}',
             RpyFlask.TextboxType.NUMBER
         )
