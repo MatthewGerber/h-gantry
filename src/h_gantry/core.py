@@ -221,8 +221,7 @@ class HGantry(Component):
         self.joystick_update_interval_seconds = 0.01
 
         self.move_buffer: deque[Move] = deque()
-        self.move_buffer_max_len = 10
-        self.move_buffer_min_len = 5
+        self.move_buffer_max_len = 50
 
         self.point_history: List[Tuple[float, float]] = []
         self.enabled = True
@@ -331,16 +330,18 @@ class HGantry(Component):
 
     def move_to_home_limit(
             self,
+            step_distance_mm: float,
             mm_per_sec: float
     ):
         """
         Home the gantry to the left-bottom corner.
 
+        :param step_distance_mm: Distance (+mm) of each step toward the limit.
         :param mm_per_sec: Speed.
         """
 
-        self.move_to_left_limit(mm_per_sec)
-        self.move_to_bottom_limit(mm_per_sec)
+        self.move_to_left_limit(step_distance_mm, mm_per_sec)
+        self.move_to_bottom_limit(step_distance_mm, mm_per_sec)
 
     def center(
             self,
@@ -361,51 +362,59 @@ class HGantry(Component):
 
     def move_to_left_limit(
             self,
+            step_distance_mm: float,
             mm_per_sec: float
     ):
         """
         Move to the left limit.
 
+        :param step_distance_mm: Distance (+mm) of each step toward the limit.
         :param mm_per_sec: speed.
         """
 
-        self.move_to_offset_limit(-10.0, 0.0, mm_per_sec)
+        self.move_to_offset_limit(-step_distance_mm, 0.0, mm_per_sec)
 
     def move_to_right_limit(
             self,
+            step_distance_mm: float,
             mm_per_sec: float
     ):
         """
         Move to the right limit.
 
+        :param step_distance_mm: Distance (+mm) of each step toward the limit.
         :param mm_per_sec: Speed.
         """
 
-        self.move_to_offset_limit(10.0, 0.0, mm_per_sec)
+        self.move_to_offset_limit(step_distance_mm, 0.0, mm_per_sec)
 
     def move_to_bottom_limit(
             self,
+            step_distance_mm: float,
             mm_per_sec: float
     ):
         """
         Move to the bottom limit.
 
+        :param step_distance_mm: Distance (+mm) of each step toward the limit.
         :param mm_per_sec: Speed.
         """
 
-        self.move_to_offset_limit(0.0, -10.0, mm_per_sec)
+        self.move_to_offset_limit(0.0, -step_distance_mm, mm_per_sec)
 
     def move_to_top_limit(
             self,
+            step_distance_mm: float,
             mm_per_sec: float
     ):
         """
         Move to the top limit.
 
+        :param step_distance_mm: Distance (+mm) of each step toward the limit.
         :param mm_per_sec: Speed.
         """
 
-        self.move_to_offset_limit(0.0, 10.0, mm_per_sec)
+        self.move_to_offset_limit(0.0, step_distance_mm, mm_per_sec)
 
     def calibrate(
             self,
@@ -417,17 +426,19 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
+        step_distance_mm = 100.0
+
         # measure distance between horizontal limits, and set actual x position.
-        self.move_to_left_limit(mm_per_sec)
+        self.move_to_left_limit(step_distance_mm, mm_per_sec)
         left_x = self.x
-        self.move_to_right_limit(mm_per_sec)
+        self.move_to_right_limit(step_distance_mm, mm_per_sec)
         right_x = self.x
         self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
-        self.move_to_bottom_limit(mm_per_sec)
+        self.move_to_bottom_limit(step_distance_mm, mm_per_sec)
         bottom_y = self.y
-        self.move_to_top_limit(mm_per_sec)
+        self.move_to_top_limit(step_distance_mm, mm_per_sec)
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
@@ -590,93 +601,84 @@ class HGantry(Component):
                 time()
             ))
 
-            # if the caller wants to block and wait for the current move to complete, then set the min/max buffer
-            # lengths to zero, which will force all buffered steps (including the current) to complete before returning.
+            # if the caller wants to block and wait for the current move to complete, then set the max buffer length to
+            # zero, which will force all buffered steps (including the current) to complete before returning.
             if block:
-                min_buffer_len = max_buffer_len = 0
+                max_buffer_len = 0
 
-            # otherwise, allow movements to buffer up to the given length, at which point we'll process moves until we
-            # get to the minimum length.
+            # otherwise, allow movements to buffer up to the given length.
             else:
-                min_buffer_len = self.move_buffer_min_len
                 max_buffer_len = self.move_buffer_max_len
 
             succeeded_without_limit = None
 
-            if len(self.move_buffer) > max_buffer_len:
+            while self.arduino_serial.connection.in_waiting > 0 or len(self.move_buffer) > max_buffer_len:
 
-                logging.info(
-                    f'Move buffer length ({len(self.move_buffer)}) greater than maximum ({max_buffer_len}). '
-                    'Draining...'
+                logging.info('Reading step response from driver.')
+
+                move = self.move_buffer.popleft()
+                elapsed_seconds = time() - move.timestamp
+
+                # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will
+                # come back in an unpredictable order. however, the result tuples have the stepper identifier as the
+                # first element, so we can key on that to obtain the result for each stepper.
+                stepper_id_skipped_steps = {
+                    stepper_id: skipped_steps
+                    for stepper_id, skipped_steps in [
+                        move.get_left_driver_return_value(),
+                        move.get_right_driver_return_value()
+                    ]
+                }
+                assert len(stepper_id_skipped_steps) == 2
+                left_stepper_skipped_steps = stepper_id_skipped_steps[self.left_driver.identifier]
+                right_stepper_skipped_steps = stepper_id_skipped_steps[self.right_driver.identifier]
+
+                # update stepper states now that we have results
+                left_stepper_state: Stepper.State = self.left_stepper.state
+                super(Stepper, self.left_stepper).set_state(
+                    Stepper.State(
+                        round(
+                            left_stepper_state.step +
+                            move.left_stepper_steps -
+                            left_stepper_skipped_steps
+                        ),
+                        timedelta(seconds=elapsed_seconds)
+                    )
+                )
+                right_stepper_state: Stepper.State = self.right_stepper.state
+                super(Stepper, self.right_stepper).set_state(
+                    Stepper.State(
+                        round(
+                            right_stepper_state.step +
+                            move.right_stepper_steps -
+                            right_stepper_skipped_steps
+                        ),
+                        timedelta(seconds=elapsed_seconds)
+                    )
                 )
 
-                while len(self.move_buffer) > min_buffer_len:
+                # calculate skipped distances from skipped steps
+                skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
+                    left_stepper_skipped_steps,
+                    right_stepper_skipped_steps
+                )
 
-                    move = self.move_buffer.popleft()
-                    elapsed_seconds = time() - move.timestamp
+                # subtract any skipped movement due to limit switches
+                self.x -= skipped_x_mm
+                self.y -= skipped_y_mm
 
-                    # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will
-                    # come back in an unpredictable order. however, the result tuples have the stepper identifier as the
-                    # first element, so we can key on that to obtain the result for each stepper.
-                    stepper_id_skipped_steps = {
-                        stepper_id: skipped_steps
-                        for stepper_id, skipped_steps in [
-                            move.get_left_driver_return_value(),
-                            move.get_right_driver_return_value()
-                        ]
-                    }
-                    assert len(stepper_id_skipped_steps) == 2
-                    left_stepper_skipped_steps = stepper_id_skipped_steps[self.left_driver.identifier]
-                    right_stepper_skipped_steps = stepper_id_skipped_steps[self.right_driver.identifier]
+                # advance actual x and y positions, minus any skipped movement due to limit switches.
+                self.actual_x += move.move_x_mm - skipped_x_mm
+                self.actual_y += move.move_y_mm - skipped_y_mm
+                self.set_state(HGantry.State(self.actual_x, self.actual_y))
 
-                    # update stepper states now that we have results
-                    left_stepper_state: Stepper.State = self.left_stepper.state
-                    super(Stepper, self.left_stepper).set_state(
-                        Stepper.State(
-                            round(
-                                left_stepper_state.step +
-                                move.left_stepper_steps -
-                                left_stepper_skipped_steps
-                            ),
-                            timedelta(seconds=elapsed_seconds)
-                        )
-                    )
-                    right_stepper_state: Stepper.State = self.right_stepper.state
-                    super(Stepper, self.right_stepper).set_state(
-                        Stepper.State(
-                            round(
-                                right_stepper_state.step +
-                                move.right_stepper_steps -
-                                right_stepper_skipped_steps
-                            ),
-                            timedelta(seconds=elapsed_seconds)
-                        )
-                    )
+                self.point_history.append((self.actual_x, self.actual_y))
 
-                    # calculate skipped distances from skipped steps
-                    skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
-                        left_stepper_skipped_steps,
-                        right_stepper_skipped_steps
-                    )
+                if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
+                    logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
+                    succeeded_without_limit = False
 
-                    # subtract any skipped movement due to limit switches
-                    self.x -= skipped_x_mm
-                    self.y -= skipped_y_mm
-
-                    # advance actual x and y positions, minus any skipped movement due to limit switches.
-                    self.actual_x += move.move_x_mm - skipped_x_mm
-                    self.actual_y += move.move_y_mm - skipped_y_mm
-                    self.set_state(HGantry.State(self.actual_x, self.actual_y))
-
-                    self.point_history.append((self.actual_x, self.actual_y))
-
-                    if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
-                        logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
-                        succeeded_without_limit = False
-
-                    logging.debug(f'Move buffer length:  {len(self.move_buffer)}')
-
-                logging.info('Drained.')
+                logging.debug(f'Move buffer length:  {len(self.move_buffer)}')
 
             # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
             # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
@@ -817,7 +819,7 @@ class HGantry(Component):
         move_distance_mm = math.sqrt(x_offset_mm ** 2 + y_offset_mm ** 2)
         move_time_seconds = move_distance_mm / mm_per_sec
         sleep_time_seconds = move_time_seconds / 2.0
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, False, False) != False:
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False) != False:
             sleep(sleep_time_seconds)
         else:
             self.clear_move_buffer()
