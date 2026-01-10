@@ -162,7 +162,9 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
   else {
     left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
+    int left_stepper_previous_drive_increment = left_stepper_drive_increment;
     left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;
+    bool left_stepper_changing_direction = left_stepper_drive_increment != left_stepper_previous_drive_increment;
 
     if (left_driver_dir_pin >= 0) {
       digitalWrite(left_driver_dir_pin, left_stepper_drive_increment < 0 ? LOW : HIGH);
@@ -170,9 +172,11 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     left_stepper_limit_skipped_drives = 0;
     left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
 
-    // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
-    if (left_stepper_us_per_drive == 0) {
-      left_stepper_us_per_drive = left_stepper_us_per_drive_target > MIN_US_PER_DRIVE_FROM_STOPPED ? left_stepper_us_per_drive_target : MIN_US_PER_DRIVE_FROM_STOPPED;
+    // if we're accelerating from a dead stop, moving slower than the dead-stop acceleration, or changing direction, then set the drive 
+    // speed to the fastest permissible from a stopped position. if none of these conditions is true, then we'll continue driving in the 
+    // same direction and will accelerate/decelerate from the current speed.
+    if (left_stepper_us_per_drive == 0 || left_stepper_us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED || left_stepper_changing_direction) {
+      left_stepper_us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
     }
 
     if (drive_left_immediately) {
@@ -191,7 +195,9 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
   else {
     right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
+    int right_stepper_previous_drive_increment = right_stepper_drive_increment;
     right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
+    bool right_stepper_changing_direction = right_stepper_drive_increment != right_stepper_previous_drive_increment;
 
     if (right_driver_dir_pin >= 0) {
       digitalWrite(right_driver_dir_pin, right_stepper_drive_increment < 0 ? LOW : HIGH);
@@ -199,9 +205,11 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     right_stepper_limit_skipped_drives = 0;
     right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
 
-    // if we're accelerating from a dead stop, limit initial speed to the fastest direct acceleration. if we're presently moving, then we can accelerate from the current speed.
-    if (right_stepper_us_per_drive == 0) {
-      right_stepper_us_per_drive = right_stepper_us_per_drive_target > MIN_US_PER_DRIVE_FROM_STOPPED ? right_stepper_us_per_drive_target : MIN_US_PER_DRIVE_FROM_STOPPED;
+    // if we're accelerating from a dead stop, moving slower than the dead-stop acceleration, or changing direction, then set the drive 
+    // speed to the fastest permissible from a stopped position. if none of these conditions is true, then we'll continue driving in the 
+    // same direction and will accelerate/decelerate from the current speed.
+    if (right_stepper_us_per_drive == 0 || right_stepper_us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED || right_stepper_changing_direction) {
+      right_stepper_us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
     }
 
     if (drive_right_immediately) {
