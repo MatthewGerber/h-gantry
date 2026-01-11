@@ -7,9 +7,9 @@ import os.path
 from collections import deque
 from datetime import timedelta
 from enum import IntEnum
-from threading import Lock
+from threading import RLock
 from time import time, sleep
-from typing import Tuple, List, Optional, Callable, NamedTuple, Union
+from typing import Tuple, List, Optional, Callable, Union
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -18,7 +18,7 @@ from spyrograph import Hypotrochoid
 # noinspection PyProtectedMember
 from spyrograph.core._trochoid import _Trochoid
 
-from raspberry_py.gpio import CkPin, Component
+from raspberry_py.gpio import CkPin, Component, Clock
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
@@ -26,20 +26,44 @@ from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import RpyFlask
 
 
-class Move(NamedTuple):
+class Move:
     """
     Move record for gantry.
     """
 
-    to_x_mm: float
-    to_y_mm: float
-    move_x_mm: float
-    move_y_mm: float
-    left_stepper_steps: int
-    get_left_driver_return_value: Callable
-    right_stepper_steps: int
-    get_right_driver_return_value: Callable
-    timestamp: float
+    def __init__(
+            self,
+            to_x_mm: float,
+            to_y_mm: float,
+            move_x_mm: float,
+            move_y_mm: float,
+            left_stepper_steps: int,
+            right_stepper_steps: int,
+            time_to_step: timedelta
+    ):
+        """
+        Initialize the move.
+
+        :param to_x_mm: To x position (mm).
+        :param to_y_mm: To y position (mm).
+        :param move_x_mm: X offset (mm).
+        :param move_y_mm: Y offset (mm).
+        :param left_stepper_steps: Left stepper steps.
+        :param right_stepper_steps: Right stepper steps.
+        :param time_to_step: Duration of step.
+        """
+
+        self.to_x_mm = to_x_mm
+        self.to_y_mm = to_y_mm
+        self.move_x_mm = move_x_mm
+        self.move_y_mm = move_y_mm
+        self.left_stepper_steps = left_stepper_steps
+        self.right_stepper_steps = right_stepper_steps
+        self.time_to_step = time_to_step
+
+        self.timestamp = time()
+        self.get_left_driver_return_value: Optional[Callable] = None
+        self.get_right_driver_return_value: Optional[Callable] = None
 
 
 class HGantry(Component):
@@ -148,7 +172,7 @@ class HGantry(Component):
         self.timing_pulley_dia_mm = timing_pulley_dia_mm
         self.state_path = state_path
 
-        self.move_to_point_lock = Lock()
+        self.move_lock = RLock()
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoA4988)
@@ -220,8 +244,12 @@ class HGantry(Component):
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
 
-        self.move_buffer: deque[Move] = deque()
-        self.move_buffer_max_len = 50
+        self.moves_pending_in_python: List[Move] = []
+        self.moves_pending_in_arduino: deque[Move] = deque()
+        self.min_moves_pending_in_arduino = 5
+        self.max_moves_pending_in_arduino = 50
+        self.read_completed_moves_timer = Clock(0.5)
+        self.read_completed_moves_timer.event(lambda _: self.read_completed_moves(False))
 
         self.point_history: List[Tuple[float, float]] = []
         self.enabled = True
@@ -279,6 +307,8 @@ class HGantry(Component):
         Start the gantry.
         """
 
+        self.arduino_serial.manual_buffer = False
+
         self.left_stepper.start()
         self.right_stepper.start()
         limit_switches_inited = bool(self.arduino_serial.write_then_read(
@@ -297,6 +327,10 @@ class HGantry(Component):
 
         self.joystick.start_updating_state(self.joystick_update_interval_seconds)
 
+        # switch to manual buffering and start reading completed moves
+        self.arduino_serial.manual_buffer = True
+        self.read_completed_moves_timer.start()
+
     def stop(
             self,
             save_state: bool
@@ -309,6 +343,10 @@ class HGantry(Component):
 
         # process the buffer to obtain current x/y position
         self.clear_move_buffer()
+
+        # stop reading completed moves and switch to automatic buffering
+        self.read_completed_moves_timer.stop()
+        self.arduino_serial.manual_buffer = False
 
         self.joystick.stop_updating_state()
         self.adc.close()
@@ -540,7 +578,7 @@ class HGantry(Component):
         move was processed by the current call, then the return value will be for that move.
         """
 
-        with self.move_to_point_lock:
+        with self.move_lock:
 
             if check_bounds:
                 self.assert_point_in_bounds(x, y)
@@ -575,9 +613,47 @@ class HGantry(Component):
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
+            # step motors and record in the buffer. the stepper drivers are asserted to operate asynchronously, so each
+            # return value will be a function that returns a stepper identifier and the number of skipped steps due to
+            # hitting a limit switch.
+            self.moves_pending_in_python.append(Move(
+                x,
+                y,
+                move_x_mm,
+                move_y_mm,
+                left_stepper_steps,
+                right_stepper_steps,
+                time_to_step
+            ))
+
+            succeeded_without_limit: Optional[bool] = None
+            if block:
+                succeeded_without_limit = self.read_completed_moves(True)
+
+            # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
+            # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
+            # actual x and y positions separately (actual_x and actual_y). eventually these values will converge, so
+            # long as we don't hit limit switches.
+            self.x += move_x_mm
+            self.y += move_y_mm
+
+            return succeeded_without_limit
+
+    def send_move_to_arduino(
+            self,
+            move: Move
+    ) -> Tuple[Callable, Callable]:
+        """
+        Send a move to the Arduino.
+
+        :param move: Move.
+        :return: 2-tuple of left/right driver return value functions.
+        """
+
+        with self.move_lock:
+
             # send step command for the joint action of the two steppers, plus a dummy component that will be ignored.
-            # the steppers will send their step commands next, which the arduino will process jointly. no need to flush
-            # here, since the stepper drivers will flush.
+            # the steppers will send their step commands next, which the arduino will process jointly.
             self.arduino_serial.write_then_read(
                 HGantry.Command.STEP.to_bytes(1) +
                 (0).to_bytes(1),
@@ -586,38 +662,72 @@ class HGantry(Component):
                 False
             )
 
-            # step motors and record in the buffer. the stepper drivers are asserted to operate asynchronously, so each
-            # return value will be a function that returns a stepper identifier and the number of skipped steps due to
-            # hitting a limit switch.
-            self.move_buffer.append(Move(
-                x,
-                y,
-                move_x_mm,
-                move_y_mm,
-                left_stepper_steps,
-                self.left_stepper.step(left_stepper_steps, time_to_step),
-                right_stepper_steps,
-                self.right_stepper.step(right_stepper_steps, time_to_step),
-                time()
-            ))
+            # send stepper commands and retain the driver return value functions
+            (
+                left_return,
+                right_return
+            ) = (
+                self.left_stepper.step(move.left_stepper_steps, move.time_to_step),
+                self.right_stepper.step(move.right_stepper_steps, move.time_to_step)
+            )
 
-            # if the caller wants to block and wait for the current move to complete, then set the max buffer length to
-            # zero, which will force all buffered steps (including the current) to complete before returning.
-            if block:
-                max_buffer_len = 0
+            self.moves_pending_in_arduino.append(move)
 
-            # otherwise, allow movements to buffer up to the given length.
-            else:
-                max_buffer_len = self.move_buffer_max_len
+            return left_return, right_return
 
-            succeeded_without_limit = None
+    def send_moves_to_arduino_if_needed(
+            self
+    ):
+        """
+        Send moves to the Arduino if its pending move buffer is low (and we have any moves to send).
+        """
 
-            while self.arduino_serial.connection.in_waiting > 0 or len(self.move_buffer) > max_buffer_len:
+        # if the arduino's pending move buffer is low, and we have moves pending in python, then send as many as we can
+        # in one big lump.
+        with self.move_lock:
+            if (
+                len(self.moves_pending_in_arduino) < self.min_moves_pending_in_arduino and
+                len(self.moves_pending_in_python) > 0
+            ):
+                num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
+                moves_to_send = self.moves_pending_in_python[:num_moves_to_send]
+                for move_to_send in moves_to_send:
+                    (
+                        move_to_send.get_left_driver_return_value,
+                        move_to_send.get_right_driver_return_value
+                    ) = self.send_move_to_arduino(move_to_send)
+                self.moves_pending_in_python = self.moves_pending_in_python[num_moves_to_send:]
+                self.arduino_serial.flush_manually()
+                logging.info(f'Sent {len(moves_to_send)} move(s) to Arduino.')
 
-                logging.info('Reading step response from driver.')
+    def read_completed_moves(
+            self,
+            clear_move_buffers: bool
+    ) -> Optional[bool]:
+        """
+        Read completed moves.
 
-                move = self.move_buffer.popleft()
-                elapsed_seconds = time() - move.timestamp
+        :param clear_move_buffers: Whether to continue sending and reading moves until all move buffers are clear. If
+        False, then this function will read moves only until none are left to read at the moment.
+        :return: True if a move was read without hitting a limit switch; False if limit switch was hit by a read move
+        Will be None if no moves were read.
+        """
+
+        with self.move_lock:
+
+            succeeded_without_limit: Optional[bool] = None
+
+            while (
+                self.arduino_serial.connection.in_waiting > 0 or
+                (clear_move_buffers and len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0)
+            ):
+                self.send_moves_to_arduino_if_needed()
+
+                logging.info('Reading move response from driver.')
+
+                move = self.moves_pending_in_arduino.popleft()
+                assert move.get_left_driver_return_value is not None
+                assert move.get_right_driver_return_value is not None
 
                 # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will
                 # come back in an unpredictable order. however, the result tuples have the stepper identifier as the
@@ -629,6 +739,7 @@ class HGantry(Component):
                         move.get_right_driver_return_value()
                     ]
                 }
+                elapsed_seconds = time() - move.timestamp
                 assert len(stepper_id_skipped_steps) == 2
                 left_stepper_skipped_steps = stepper_id_skipped_steps[self.left_driver.identifier]
                 right_stepper_skipped_steps = stepper_id_skipped_steps[self.right_driver.identifier]
@@ -678,16 +789,9 @@ class HGantry(Component):
                     logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                     succeeded_without_limit = False
 
-                logging.debug(f'Move buffer length:  {len(self.move_buffer)}')
+                logging.debug(f'Sent moves remaining:  {len(self.moves_pending_in_arduino)}')
 
-            # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
-            # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
-            # actual x and y positions separately (actual_x and actual_y). eventually these values will converge, so
-            # long as we don't hit limit switches.
-            self.x += move_x_mm
-            self.y += move_y_mm
-
-        return succeeded_without_limit
+            return succeeded_without_limit
 
     def clear_move_buffer(
             self
@@ -709,7 +813,7 @@ class HGantry(Component):
         Clear the point history.
         """
 
-        with self.move_to_point_lock:
+        with self.move_lock:
             self.point_history.clear()
 
     def get_x_mm_y_mm_from_steps(
@@ -995,9 +1099,27 @@ class HGantry(Component):
         :return: Base-64 encoded image of line plot.
         """
 
-        with self.move_to_point_lock:
-            plt.plot(*zip(*self.point_history), linestyle='-', marker='.', markersize=0.05, label='Completed')
-            plt.plot(*zip(*[(m.to_x_mm, m.to_y_mm) for m in self.move_buffer]), linestyle='-', marker='o', fillstyle='none', alpha=0.5, label='Future')
+        with self.move_lock:
+            plt.plot(
+                *zip(*self.point_history),
+                linestyle='-',
+                marker='.',
+                markersize=0.05,
+                label='Completed'
+            )
+            plt.plot(
+                *zip(
+                    *[
+                        (m.to_x_mm, m.to_y_mm)
+                        for m in self.moves_pending_in_python + list(self.moves_pending_in_arduino)
+                    ]
+                ),
+                linestyle='-',
+                marker='o',
+                fillstyle='none',
+                alpha=0.5,
+                label='Future'
+            )
 
         plt.gcf().set_size_inches(8.0, 8.0)
         plt.gca().set_aspect('equal')

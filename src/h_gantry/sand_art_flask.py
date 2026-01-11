@@ -23,7 +23,8 @@ locking_serial = LockingSerial(
         stopbits=serial.STOPBITS_ONE,
         bytesize=serial.EIGHTBITS
     ),
-    throughput_step_size=0.05
+    throughput_step_size=0.05,
+    manual_buffer=True
 )
 
 left_stepper = Stepper(
