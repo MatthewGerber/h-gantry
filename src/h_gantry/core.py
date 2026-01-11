@@ -244,14 +244,15 @@ class HGantry(Component):
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
 
+        # move buffer management in python and arduino
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
-        self.min_moves_pending_in_arduino = 5
-        self.max_moves_pending_in_arduino = 50
+        self.min_moves_pending_in_arduino = 5  # keep moves in arduino to maintain momentum
+        self.max_moves_pending_in_arduino = 50  # arduino has limited memory for its move buffer
         self.read_completed_moves_timer = Clock(0.5)
         self.read_completed_moves_timer.event(lambda _: self.read_completed_moves(False))
+        self.completed_move_points: List[Tuple[float, float]] = []
 
-        self.point_history: List[Tuple[float, float]] = []
         self.enabled = True
 
     def joystick_move(
@@ -298,7 +299,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return 10.0  # math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+        return 20.0  # math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
 
     def start(
             self
@@ -307,8 +308,8 @@ class HGantry(Component):
         Start the gantry.
         """
 
+        # switch to automatic buffering for initialization
         self.arduino_serial.manual_buffer = False
-
         self.left_stepper.start()
         self.right_stepper.start()
         limit_switches_inited = bool(self.arduino_serial.write_then_read(
@@ -344,7 +345,7 @@ class HGantry(Component):
         # process the buffer to obtain current x/y position
         self.clear_move_buffer()
 
-        # stop reading completed moves and switch to automatic buffering
+        # stop reading completed moves and switch to automatic buffering to stop the steppers
         self.read_completed_moves_timer.stop()
         self.arduino_serial.manual_buffer = False
 
@@ -464,24 +465,24 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
-        step_distance_mm = 100.0
+        move_distance_mm = 100.0
 
         # measure distance between horizontal limits, and set actual x position.
-        self.move_to_left_limit(step_distance_mm, mm_per_sec)
+        self.move_to_left_limit(move_distance_mm, mm_per_sec)
         left_x = self.x
-        self.move_to_right_limit(step_distance_mm, mm_per_sec)
+        self.move_to_right_limit(move_distance_mm, mm_per_sec)
         right_x = self.x
         self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
-        self.move_to_bottom_limit(step_distance_mm, mm_per_sec)
+        self.move_to_bottom_limit(move_distance_mm, mm_per_sec)
         bottom_y = self.y
-        self.move_to_top_limit(step_distance_mm, mm_per_sec)
+        self.move_to_top_limit(move_distance_mm, mm_per_sec)
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
         self.clear_point_history()
-        self.point_history = [(self.x, self.y)]
+        self.completed_move_points = [(self.x, self.y)]
 
     def get_move_to(
             self,
@@ -571,11 +572,11 @@ class HGantry(Component):
         :param x: X coordinate to move to.
         :param y: Y coordinate to move to.
         :param mm_per_sec: Speed in mm per second.
-        :param block: Whether to block until the movement is complete.
+        :param block: Whether to block until the movement is complete. If True, then the move (and all pending moves)
+        will be completed, and the return value will be non-None. If False, then the return value will be None.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
-        :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
-        achieved. Will be None if the move was buffered and no other moves were processed. If a previously buffered
-        move was processed by the current call, then the return value will be for that move.
+        :return: None if `block` is False and non-None if True. When non-None:  True if move was completed without
+        hitting a limit switch; False if limit switch was hit before move was completed.
         """
 
         with self.move_lock:
@@ -585,7 +586,7 @@ class HGantry(Component):
 
             # if disabled, then add to point history but do nothing else.
             if not self.enabled:
-                self.point_history.append((x, y))
+                self.completed_move_points.append((x, y))
                 return True
 
             # calculate x steps (left/right) and y steps (down/up) to move
@@ -613,9 +614,7 @@ class HGantry(Component):
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-            # step motors and record in the buffer. the stepper drivers are asserted to operate asynchronously, so each
-            # return value will be a function that returns a stepper identifier and the number of skipped steps due to
-            # hitting a limit switch.
+            # add a new python-side pending move, and send moves to arduino if it needs any.
             self.moves_pending_in_python.append(Move(
                 x,
                 y,
@@ -625,12 +624,14 @@ class HGantry(Component):
                 right_stepper_steps,
                 time_to_step
             ))
+            self.send_moves_to_arduino_if_needed()
 
+            # block for the move if needed
             succeeded_without_limit: Optional[bool] = None
             if block:
                 succeeded_without_limit = self.read_completed_moves(True)
 
-            # advance x and y positions as if the moves are already completed, ignoring buffering. this is important
+            # advance x and y positions as if the move was already completed, ignoring buffering. this is important
             # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
             # actual x and y positions separately (actual_x and actual_y). eventually these values will converge, so
             # long as we don't hit limit switches.
@@ -642,12 +643,11 @@ class HGantry(Component):
     def send_move_to_arduino(
             self,
             move: Move
-    ) -> Tuple[Callable, Callable]:
+    ):
         """
         Send a move to the Arduino.
 
         :param move: Move.
-        :return: 2-tuple of left/right driver return value functions.
         """
 
         with self.move_lock:
@@ -662,18 +662,18 @@ class HGantry(Component):
                 False
             )
 
-            # send stepper commands and retain the driver return value functions
+            # step motors and retain the driver return value functions in the move. the stepper drivers are asserted to
+            # operate asynchronously, so each return value will be a function that returns a stepper identifier and the
+            # number of skipped steps due to hitting a limit switch.
             (
-                left_return,
-                right_return
+                move.get_left_driver_return_value,
+                move.get_right_driver_return_value
             ) = (
                 self.left_stepper.step(move.left_stepper_steps, move.time_to_step),
                 self.right_stepper.step(move.right_stepper_steps, move.time_to_step)
             )
 
             self.moves_pending_in_arduino.append(move)
-
-            return left_return, right_return
 
     def send_moves_to_arduino_if_needed(
             self
@@ -685,19 +685,23 @@ class HGantry(Component):
         # if the arduino's pending move buffer is low, and we have moves pending in python, then send as many as we can
         # in one big lump.
         with self.move_lock:
-            if (
-                len(self.moves_pending_in_arduino) < self.min_moves_pending_in_arduino and
-                len(self.moves_pending_in_python) > 0
-            ):
-                num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
-                moves_to_send = self.moves_pending_in_python[:num_moves_to_send]
+
+            arduino_needs_moves = len(self.moves_pending_in_arduino) < self.min_moves_pending_in_arduino
+            python_has_moves = len(self.moves_pending_in_python) > 0
+
+            if arduino_needs_moves and python_has_moves:
+
+                max_num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
+                moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:
-                    (
-                        move_to_send.get_left_driver_return_value,
-                        move_to_send.get_right_driver_return_value
-                    ) = self.send_move_to_arduino(move_to_send)
-                self.moves_pending_in_python = self.moves_pending_in_python[num_moves_to_send:]
+                    self.send_move_to_arduino(move_to_send)
+
+                self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
+
+                # push all bytes to arduino at once. this is how send moves in a single lump, minimizing the number of
+                # serial read/writes.
                 self.arduino_serial.flush_manually()
+
                 logging.info(f'Sent {len(moves_to_send)} move(s) to Arduino.')
 
     def read_completed_moves(
@@ -708,7 +712,7 @@ class HGantry(Component):
         Read completed moves.
 
         :param clear_move_buffers: Whether to continue sending and reading moves until all move buffers are clear. If
-        False, then this function will read moves only until none are left to read at the moment.
+        False, then this function will only read one or more moves if they are already present in the serial read buffer
         :return: True if a move was read without hitting a limit switch; False if limit switch was hit by a read move
         Will be None if no moves were read.
         """
@@ -774,7 +778,8 @@ class HGantry(Component):
                     right_stepper_skipped_steps
                 )
 
-                # subtract any skipped movement due to limit switches
+                # subtract any skipped movement due to limit switches. we previously added the move x/y offsets when
+                # creating the move, so all we need to do is subtract the skipped distances.
                 self.x -= skipped_x_mm
                 self.y -= skipped_y_mm
 
@@ -783,7 +788,7 @@ class HGantry(Component):
                 self.actual_y += move.move_y_mm - skipped_y_mm
                 self.set_state(HGantry.State(self.actual_x, self.actual_y))
 
-                self.point_history.append((self.actual_x, self.actual_y))
+                self.completed_move_points.append((self.actual_x, self.actual_y))
 
                 if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
                     logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
@@ -814,7 +819,7 @@ class HGantry(Component):
         """
 
         with self.move_lock:
-            self.point_history.clear()
+            self.completed_move_points.clear()
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -1101,7 +1106,7 @@ class HGantry(Component):
 
         with self.move_lock:
             plt.plot(
-                *zip(*self.point_history),
+                *zip(*self.completed_move_points),
                 linestyle='-',
                 marker='.',
                 markersize=0.05,
