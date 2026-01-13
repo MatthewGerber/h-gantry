@@ -465,7 +465,7 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
-        move_distance_mm = 100.0
+        move_distance_mm = 500.0
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
@@ -1020,7 +1020,7 @@ class HGantry(Component):
             return_to_current_position,
             False,
             check_bounds,
-            10.0
+            20.0
         )
 
         if block:
