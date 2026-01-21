@@ -1,5 +1,6 @@
 import logging
 import os.path
+import time
 
 import serial
 from serial import Serial
@@ -94,16 +95,21 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-    gantry.draw_spirograph_from_params(
-        350,
-        200,
-        100,
-        0.0,
-        25.0,
-        0.01,
-        0.5,
-        200.0,
-    )
+    try:
+        time.sleep(1000.0)
+    except KeyboardInterrupt:
+        pass
+
+    # gantry.draw_spirograph_from_params(
+    #     350,
+    #     200,
+    #     100,
+    #     0.0,
+    #     25.0,
+    #     0.01,
+    #     0.5,
+    #     150.0,
+    # )
 
     gantry.stop(True)
 

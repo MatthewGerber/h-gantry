@@ -223,8 +223,8 @@ class HGantry(Component):
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
-                joystick_y_ad_channel: (-9.0, 9.0),
-                joystick_x_ad_channel: (-9.0, 9.0)
+                joystick_y_ad_channel: (-150.0, 150.0),
+                joystick_x_ad_channel: (-150.0, 150.0)
             }
         )
         self.adc.only_report_state_changes = False
@@ -270,19 +270,19 @@ class HGantry(Component):
             self.center(100.0, True, True)
 
         # ignore negligible joystick movements and noise
-        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 2.0:
+        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 10.0:
 
-            # move 1 mm in the joystick direction as indicated by the vector norm
+            # move in the joystick direction as indicated by the vector norm
             move_vector = np.array([joystick_state.x, joystick_state.y])
             norm = np.linalg.norm(move_vector)
             if norm != 0.0:
-                move_x_mm, move_y_mm = move_vector / norm
+                move_x_mm, move_y_mm = (move_vector / norm) * 10.0
                 try:
                     self.move_to_offset(
                         move_x_mm,
                         move_y_mm,
                         HGantry.get_speed_from_joystick_state(joystick_state),
-                        False,
+                        True,
                         True
                     )
                 except ValueError as e:
@@ -299,7 +299,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return 20.0  # math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+        return max(1.0, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2))
 
     def start(
             self
@@ -1020,7 +1020,7 @@ class HGantry(Component):
             return_to_current_position,
             False,
             check_bounds,
-            20.0
+            10.0
         )
 
         if block:
@@ -1205,7 +1205,7 @@ class HGantry(Component):
         mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-mm_per_sec',
             'Speed (mm/sec) to draw the spirograph',
-            '10.0',
+            '100.0',
             RpyFlask.TextboxType.NUMBER
         )
 
@@ -1221,12 +1221,12 @@ class HGantry(Component):
         ]
 
         return [
-            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
+            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 100.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
