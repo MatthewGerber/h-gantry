@@ -874,9 +874,7 @@ class HGantry(Component):
         if check_bounds:
             all(self.assert_point_in_bounds(x, y) for x, y in points)
 
-        if return_to_current_position:
-            points = points.copy()
-            points.append((self.x, self.y))
+        original_x, original_y = self.x, self.y
 
         num_points = len(points)
         for i, (x, y) in enumerate(points):
@@ -886,7 +884,13 @@ class HGantry(Component):
                 logging.debug(f'Skipping non-move point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
             else:
                 logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
-                self.move_to_point(x, y, mm_per_sec, block, check_bounds)
+                self.move_to_point(x, y, mm_per_sec, False, check_bounds)
+
+        if return_to_current_position:
+            self.move_to_point(original_x, original_y, mm_per_sec, False, check_bounds)
+
+        if block:
+            self.clear_move_buffer()
 
     def move_to_offset(
             self,
@@ -961,18 +965,18 @@ class HGantry(Component):
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         """
 
-        # calculate radians required to complete the spirograph
-        gcd = math.gcd(R, r)
-        theta_stop = 2.0 * np.pi * (R // gcd)
+        R = int(R * scale)
+        r = int(r * scale)
+        d = int(d * scale)
 
         g = Hypotrochoid(
             R=R,
             r=r,
             d=d,
             theta_start=0.0,
-            theta_stop=theta_stop,
+            theta_stop=2.0 * np.pi * (r / math.gcd(R, r)),  # complete draw without repetition
             theta_step=theta_step
-        ).scale(scale)
+        )
 
         self.draw_spirograph(
             g,
@@ -1033,9 +1037,6 @@ class HGantry(Component):
             check_bounds,
             ignore_moves_shorter_than_mm
         )
-
-        if block:
-            self.clear_move_buffer()
 
         return g
 
@@ -1115,6 +1116,7 @@ class HGantry(Component):
         :return: Base-64 encoded image of line plot.
         """
 
+        plotted = False
         with self.move_lock:
             plt.plot(
                 *zip(*self.completed_move_points),
@@ -1123,11 +1125,12 @@ class HGantry(Component):
                 markersize=0.05,
                 label='Completed'
             )
+            pending_moves = self.moves_pending_in_python + list(self.moves_pending_in_arduino)
             plt.plot(
                 *zip(
                     *[
                         (m.to_x_mm, m.to_y_mm)
-                        for m in self.moves_pending_in_python + list(self.moves_pending_in_arduino)
+                        for m in pending_moves
                     ]
                 ),
                 linestyle='-',
@@ -1136,11 +1139,13 @@ class HGantry(Component):
                 alpha=0.5,
                 label='Future'
             )
+            plotted = len(self.completed_move_points) + len(pending_moves) > 0
 
         plt.gcf().set_size_inches(8.0, 8.0)
         plt.gca().set_aspect('equal')
         plt.grid()
-        plt.legend()
+        if plotted:
+            plt.legend()
         plt.xlim(0.0, self.left_right_mm)
         plt.ylim(0.0, self.bottom_top_mm)
         plt.xlabel('mm')
@@ -1167,21 +1172,21 @@ class HGantry(Component):
         R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-upper-r',
             'Radius (R; mm) of the fixed circle along which the moving circle rolls',
-            '350.0',
+            '350',
             RpyFlask.TextboxType.NUMBER
         )
 
         r_textbox_id, r_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-lower-r',
             'Radius (r; mm) of the rolling circle',
-            '200.0',
+            '200',
             RpyFlask.TextboxType.NUMBER
         )
 
         d_textbox_id, d_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-d',
             'Distance (d; mm) of the trace point from the rolling circle',
-            '100.0',
+            '100',
             RpyFlask.TextboxType.NUMBER
         )
 
@@ -1238,9 +1243,9 @@ class HGantry(Component):
         )
 
         spirograph_dyn_args = [
-            ('R', float, f'{R_textbox_id}'),
-            ('r', float, f'{r_textbox_id}'),
-            ('d', float, f'{d_textbox_id}'),
+            ('R', int, f'{R_textbox_id}'),
+            ('r', int, f'{r_textbox_id}'),
+            ('d', int, f'{d_textbox_id}'),
             ('theta_step', float, f'{theta_step_textbox_id}'),
             ('scale', float, f'{scale_textbox_id}'),
             ('mm_per_sec', float, f'{mm_per_sec_textbox_id}'),
