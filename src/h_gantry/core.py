@@ -223,8 +223,8 @@ class HGantry(Component):
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
-                joystick_y_ad_channel: (-9.0, 9.0),
-                joystick_x_ad_channel: (-9.0, 9.0)
+                joystick_y_ad_channel: (-150.0, 150.0),
+                joystick_x_ad_channel: (-150.0, 150.0)
             }
         )
         self.adc.only_report_state_changes = False
@@ -270,19 +270,19 @@ class HGantry(Component):
             self.center(100.0, True, True)
 
         # ignore negligible joystick movements and noise
-        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 2.0:
+        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 10.0:
 
-            # move 1 mm in the joystick direction as indicated by the vector norm
+            # move in the joystick direction as indicated by the vector norm
             move_vector = np.array([joystick_state.x, joystick_state.y])
             norm = np.linalg.norm(move_vector)
             if norm != 0.0:
-                move_x_mm, move_y_mm = move_vector / norm
+                move_x_mm, move_y_mm = (move_vector / norm) * 10.0
                 try:
                     self.move_to_offset(
                         move_x_mm,
                         move_y_mm,
                         HGantry.get_speed_from_joystick_state(joystick_state),
-                        False,
+                        True,
                         True
                     )
                 except ValueError as e:
@@ -299,7 +299,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return 20.0  # math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+        return max(1.0, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2))
 
     def start(
             self
@@ -867,7 +867,7 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
-        :param ignore_moves_shorter_than_mm: Point-to-point moves shorter than this many mm.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to the current position after moving to the points.
         """
 
@@ -935,14 +935,16 @@ class HGantry(Component):
 
     def draw_spirograph_from_params(
             self,
-            R: float,
-            r: float,
-            d: float,
-            theta_start: float,
-            theta_stop: float,
+            R: int,
+            r: int,
+            d: int,
             theta_step: float,
             scale: float,
-            mm_per_sec: float
+            mm_per_sec: float,
+            ignore_moves_shorter_than_mm: float,
+            return_to_current_position: bool,
+            block: bool,
+            check_bounds: bool
     ):
         """
         Draw a spirograph from parameters.
@@ -950,18 +952,24 @@ class HGantry(Component):
         :param R: Radius of the fixed circle.
         :param r: Radius of the rolling circle.
         :param d: Distance of the trace point from the rolling circle.
-        :param theta_start: Theta start.
-        :param theta_stop: Theta stop.
-        :param theta_step: Theta step.
+        :param theta_step: Step size (radians).
         :param scale: Scale.
         :param mm_per_sec: Speed.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
+        :param return_to_current_position: Whether to return to current position.
+        :param block: Whether to block until the movement is complete.
+        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         """
+
+        # calculate radians required to complete the spirograph
+        gcd = math.gcd(R, r)
+        theta_stop = 2.0 * np.pi * (R // gcd)
 
         g = Hypotrochoid(
             R=R,
             r=r,
             d=d,
-            theta_start=theta_start,
+            theta_start=0.0,
             theta_stop=theta_stop,
             theta_step=theta_step
         ).scale(scale)
@@ -970,9 +978,10 @@ class HGantry(Component):
             g,
             (self.x, self.y),
             mm_per_sec,
-            True,
-            True,
-            True
+            ignore_moves_shorter_than_mm,
+            return_to_current_position,
+            block,
+            check_bounds
         )
 
     def draw_spirograph(
@@ -980,6 +989,7 @@ class HGantry(Component):
             g: _Trochoid,
             center: Tuple[float, float],
             mm_per_sec: float,
+            ignore_moves_shorter_than_mm: float,
             return_to_current_position: bool,
             block: bool,
             check_bounds: bool
@@ -990,6 +1000,7 @@ class HGantry(Component):
         :param g: Spirograph.
         :param center: Location of center.
         :param mm_per_sec: Speed.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
@@ -1018,9 +1029,9 @@ class HGantry(Component):
             list(zip(g.x, g.y)),
             mm_per_sec,
             return_to_current_position,
-            False,
+            block,
             check_bounds,
-            20.0
+            ignore_moves_shorter_than_mm
         )
 
         if block:
@@ -1174,20 +1185,6 @@ class HGantry(Component):
             RpyFlask.TextboxType.NUMBER
         )
 
-        theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
-            'spiro-theta_start',
-            'Starting position (theta_start; radians) of the rolling circle',
-            '0.0',
-            RpyFlask.TextboxType.NUMBER
-        )
-
-        theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
-            'spiro-theta_stop',
-            'Number of radians (theta_stop; radians) to roll the circle',
-            f'{25.0:.1f}',
-            RpyFlask.TextboxType.NUMBER
-        )
-
         theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_step',
             'Rolling step size (theta_step; radians)',
@@ -1205,40 +1202,75 @@ class HGantry(Component):
         mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-mm_per_sec',
             'Speed (mm/sec) to draw the spirograph',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        ignore_moves_textbox_id, ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
+            'spiro-ignore_moves_shorter_than_mm',
+            'Ignore moves shorter than (mm)',
             '10.0',
             RpyFlask.TextboxType.NUMBER
         )
 
-        spirograph_args = [
+        return_switch_id, return_switch_ui_element = RpyFlask.get_switch(
+            'spiro-return_to_current_position',
+            None,
+            None,
+            'Return to current position',
+            True
+        )
+
+        block_switch_id, block_switch_ui_element = RpyFlask.get_switch(
+            'spiro-block',
+            None,
+            None,
+            'Block until complete',
+            True
+        )
+
+        check_bounds_switch_id, check_bounds_switch_ui_element = RpyFlask.get_switch(
+            'spiro-check_bounds',
+            None,
+            None,
+            'Check bounds',
+            True
+        )
+
+        spirograph_dyn_args = [
             ('R', float, f'{R_textbox_id}'),
             ('r', float, f'{r_textbox_id}'),
             ('d', float, f'{d_textbox_id}'),
-            ('theta_start', float, f'{theta_start_textbox_id}'),
-            ('theta_stop', float, f'{theta_stop_textbox_id}'),
             ('theta_step', float, f'{theta_step_textbox_id}'),
             ('scale', float, f'{scale_textbox_id}'),
-            ('mm_per_sec', float, f'{mm_per_sec_textbox_id}')
+            ('mm_per_sec', float, f'{mm_per_sec_textbox_id}'),
+            ('ignore_moves_shorter_than_mm', float, f'{ignore_moves_textbox_id}'),
+            ('return_to_current_position', bool, f'{return_switch_id}'),
+            ('block', bool, f'{block_switch_id}'),
+            ('check_bounds', bool, f'{check_bounds_switch_id}')
         ]
 
         return [
-            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 10.0}, None, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 10.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 10.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
+            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 100.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, spirograph_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, spirograph_dyn_args, None, None, None, 'Draw'),
             (R_textbox_id, R_textbox_ui_element),
             (r_textbox_id, r_textbox_ui_element),
             (d_textbox_id, d_textbox_ui_element),
-            (theta_start_textbox_id, theta_start_textbox_ui_element),
-            (theta_stop_textbox_id, theta_stop_textbox_ui_element),
             (theta_step_textbox_id, theta_step_textbox_ui_element),
             (scale_textbox_id, scale_textbox_ui_element),
             (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element),
+            (ignore_moves_textbox_id, ignore_moves_textbox_ui_element),
+            (return_switch_id, return_switch_ui_element),
+            (block_switch_id, block_switch_ui_element),
+            (check_bounds_switch_id, check_bounds_switch_ui_element),
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
         ]
 

@@ -2,13 +2,13 @@ import logging
 import os
 
 import serial
-from raspberry_py.gpio import CkPin
-from raspberry_py.gpio.communication import LockingSerial
-from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoUln2003, StepperMotorDriverArduinoA4988
-from raspberry_py.rest.application import app
 from serial import Serial
 
 from h_gantry.core import HGantry
+from raspberry_py.gpio import CkPin
+from raspberry_py.gpio.communication import LockingSerial
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
+from raspberry_py.rest.application import app
 
 STEPPER_FULL_STEPS_PER_REVOLUTION = 200
 STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 1.0
