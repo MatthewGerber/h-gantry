@@ -935,11 +935,9 @@ class HGantry(Component):
 
     def draw_spirograph_from_params(
             self,
-            R: float,
-            r: float,
-            d: float,
-            theta_start: float,
-            theta_stop: float,
+            R: int,
+            r: int,
+            d: int,
             theta_step: float,
             scale: float,
             mm_per_sec: float,
@@ -954,9 +952,7 @@ class HGantry(Component):
         :param R: Radius of the fixed circle.
         :param r: Radius of the rolling circle.
         :param d: Distance of the trace point from the rolling circle.
-        :param theta_start: Theta start.
-        :param theta_stop: Theta stop.
-        :param theta_step: Theta step.
+        :param theta_step: Step size (radians).
         :param scale: Scale.
         :param mm_per_sec: Speed.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
@@ -965,11 +961,15 @@ class HGantry(Component):
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         """
 
+        # calculate radians required to complete the spirograph
+        gcd = math.gcd(R, r)
+        theta_stop = 2.0 * np.pi * (R // gcd)
+
         g = Hypotrochoid(
             R=R,
             r=r,
             d=d,
-            theta_start=theta_start,
+            theta_start=0.0,
             theta_stop=theta_stop,
             theta_step=theta_step
         ).scale(scale)
@@ -1185,20 +1185,6 @@ class HGantry(Component):
             RpyFlask.TextboxType.NUMBER
         )
 
-        theta_start_textbox_id, theta_start_textbox_ui_element = RpyFlask.get_textbox(
-            'spiro-theta_start',
-            'Starting position (theta_start; radians) of the rolling circle',
-            '0.0',
-            RpyFlask.TextboxType.NUMBER
-        )
-
-        theta_stop_textbox_id, theta_stop_textbox_ui_element = RpyFlask.get_textbox(
-            'spiro-theta_stop',
-            'Number of radians (theta_stop; radians) to roll the circle',
-            f'{25.0:.1f}',
-            RpyFlask.TextboxType.NUMBER
-        )
-
         theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_step',
             'Rolling step size (theta_step; radians)',
@@ -1255,8 +1241,6 @@ class HGantry(Component):
             ('R', float, f'{R_textbox_id}'),
             ('r', float, f'{r_textbox_id}'),
             ('d', float, f'{d_textbox_id}'),
-            ('theta_start', float, f'{theta_start_textbox_id}'),
-            ('theta_stop', float, f'{theta_stop_textbox_id}'),
             ('theta_step', float, f'{theta_step_textbox_id}'),
             ('scale', float, f'{scale_textbox_id}'),
             ('mm_per_sec', float, f'{mm_per_sec_textbox_id}'),
@@ -1280,11 +1264,13 @@ class HGantry(Component):
             (R_textbox_id, R_textbox_ui_element),
             (r_textbox_id, r_textbox_ui_element),
             (d_textbox_id, d_textbox_ui_element),
-            (theta_start_textbox_id, theta_start_textbox_ui_element),
-            (theta_stop_textbox_id, theta_stop_textbox_ui_element),
             (theta_step_textbox_id, theta_step_textbox_ui_element),
             (scale_textbox_id, scale_textbox_ui_element),
             (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element),
+            (ignore_moves_textbox_id, ignore_moves_textbox_ui_element),
+            (return_switch_id, return_switch_ui_element),
+            (block_switch_id, block_switch_ui_element),
+            (check_bounds_switch_id, check_bounds_switch_ui_element),
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
         ]
 
