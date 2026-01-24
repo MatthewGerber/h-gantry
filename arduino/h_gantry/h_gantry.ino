@@ -55,6 +55,8 @@ const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED -
 // left stepper
 const byte LEFT_STEPPER_ID = 0;
 byte left_driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
+int left_driver_disable_pin;  // -1 for no disable pin
+bool left_driver_is_disabled;
 int left_driver_dir_pin;  // -1 for no direction pin
 long left_stepper_drive_idx;
 long left_stepper_drive_target;
@@ -64,11 +66,13 @@ unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
 unsigned long left_stepper_us_per_drive_target;
 unsigned long left_stepper_previous_acceleration_us;
-bool left_stepper_inited = false;
+bool left_stepper_is_inited = false;
 
 // right stepper
 const byte RIGHT_STEPPER_ID = 1;
 byte right_driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
+int right_driver_disable_pin;  // -1 for no disable pin
+bool right_driver_is_disabled;
 int right_driver_dir_pin;  // -1 for no direction pin
 long right_stepper_drive_idx;
 long right_stepper_drive_target;
@@ -78,7 +82,7 @@ unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
 unsigned long right_stepper_us_per_drive_target;
 unsigned long right_stepper_previous_acceleration_us;
-bool right_stepper_inited = false;
+bool right_stepper_is_inited = false;
 
 // linked list of steps to take, acting as a read buffer. each step determines how the
 // left and right steppers should move in tandem.
@@ -160,12 +164,18 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     write_stepper_done(LEFT_STEPPER_ID, 0);
   }
   else {
+
+    // enable the stepper driver, since we're about to use the stepper.
+    if (left_driver_disable_pin >= 0 && left_driver_is_disabled) {
+      digitalWrite(left_driver_disable_pin, LOW);
+      left_driver_is_disabled = false;
+    }
+
     left_stepper_drive_idx = mod(left_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     left_stepper_drive_target = left_stepper_drive_idx + to_start->left_stepper_num_drives;
     int left_stepper_previous_drive_increment = left_stepper_drive_increment;
     left_stepper_drive_increment = to_start->left_stepper_num_drives > 0 ? 1 : -1;
     bool left_stepper_changing_direction = left_stepper_drive_increment != left_stepper_previous_drive_increment;
-
     if (left_driver_dir_pin >= 0) {
       digitalWrite(left_driver_dir_pin, left_stepper_drive_increment < 0 ? LOW : HIGH);
     }
@@ -193,12 +203,18 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     write_stepper_done(RIGHT_STEPPER_ID, 0);
   }
   else {
+
+    // enable the stepper driver, since we're about to use the stepper.
+    if (right_driver_disable_pin >= 0 && right_driver_is_disabled) {
+      digitalWrite(right_driver_disable_pin, LOW);
+      right_driver_is_disabled = false;
+    }
+
     right_stepper_drive_idx = mod(right_stepper_drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     right_stepper_drive_target = right_stepper_drive_idx + to_start->right_stepper_num_drives;
     int right_stepper_previous_drive_increment = right_stepper_drive_increment;
     right_stepper_drive_increment = to_start->right_stepper_num_drives > 0 ? 1 : -1;
     bool right_stepper_changing_direction = right_stepper_drive_increment != right_stepper_previous_drive_increment;
-
     if (right_driver_dir_pin >= 0) {
       digitalWrite(right_driver_dir_pin, right_stepper_drive_increment < 0 ? LOW : HIGH);
     }
@@ -370,7 +386,7 @@ void write_stepper_done(byte stepper_id, long limit_skipped_drives) {
     limit_skipped_steps.number = limit_skipped_drives / float(DRIVES_PER_STEP);
     write_float(limit_skipped_steps);
     SerialUART.flush();
-  }
+}
 
 void setup() {
   // SerialUSB.begin(9600);
@@ -385,11 +401,11 @@ void loop() {
 
   unsigned long curr_time_us = micros();
 
-  bool completed_left_stepper = false;
-  bool completed_right_stepper = false;
+  bool completed_left_stepper_this_loop = false;
+  bool completed_right_stepper_this_loop = false;
 
   // process the current step command if everything is initialized
-  if (left_stepper_inited && right_stepper_inited && limit_switches_inited) {
+  if (left_stepper_is_inited && right_stepper_is_inited && limit_switches_inited) {
 
     /* check whether the cart is moving left, right, up, and down. this calculation is 
      * based on the following equations:
@@ -528,7 +544,7 @@ void loop() {
       }
       if (left_stepper_drive_idx == left_stepper_drive_target) {
         write_stepper_done(LEFT_STEPPER_ID, left_stepper_limit_skipped_drives);
-        completed_left_stepper = true;
+        completed_left_stepper_this_loop = true;
       }
     }
 
@@ -546,7 +562,7 @@ void loop() {
       }
       if (right_stepper_drive_idx == right_stepper_drive_target) {
         write_stepper_done(RIGHT_STEPPER_ID, right_stepper_limit_skipped_drives);
-        completed_right_stepper = true;
+        completed_right_stepper_this_loop = true;
       }
     }
   }
@@ -572,7 +588,12 @@ void loop() {
           pinMode(pin, OUTPUT);
         }
 
-        left_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        left_driver_disable_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        if (left_driver_disable_pin >= 0) {
+          pinMode(left_driver_disable_pin, OUTPUT);
+        }
+
+        left_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS + 2);
         if (left_driver_dir_pin >= 0) {
           pinMode(left_driver_dir_pin, OUTPUT);
         }
@@ -583,7 +604,7 @@ void loop() {
         left_stepper_us_per_drive = 0;
         left_stepper_us_per_drive_target = 0;
         drive_left_stepper(curr_time_us);
-        left_stepper_inited = true;
+        left_stepper_is_inited = true;
         write_bool(true);
       }
       else if (component_id == RIGHT_STEPPER_ID) {
@@ -597,7 +618,12 @@ void loop() {
           pinMode(pin, OUTPUT);
         }
 
-        right_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        right_driver_disable_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+        if (right_driver_disable_pin >= 0) {
+          pinMode(right_driver_disable_pin, OUTPUT);
+        }
+
+        right_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS + 2);
         if (right_driver_dir_pin >= 0) {
           pinMode(right_driver_dir_pin, OUTPUT);
         }
@@ -608,7 +634,7 @@ void loop() {
         right_stepper_us_per_drive = 0;
         right_stepper_us_per_drive_target = 0;
         drive_right_stepper(curr_time_us);
-        right_stepper_inited = true;
+        right_stepper_is_inited = true;
         write_bool(true);
       }
       else if (component_id == LIMIT_SWITCHES_ID) {
@@ -664,11 +690,11 @@ void loop() {
 
     }
     else if (command == CMD_STOP) {
-      if (component_id == LEFT_STEPPER_ID && left_stepper_inited) {
+      if (component_id == LEFT_STEPPER_ID && left_stepper_is_inited) {
         stop_left_stepper();
         write_bool(true);
       }
-      else if (component_id == RIGHT_STEPPER_ID && right_stepper_inited) {
+      else if (component_id == RIGHT_STEPPER_ID && right_stepper_is_inited) {
         stop_right_stepper();
         write_bool(true);
       }
@@ -676,19 +702,31 @@ void loop() {
   }
 
   // if both steppers are at their targets, then attempt to start the next step.
-  if (left_stepper_inited && left_stepper_drive_idx == left_stepper_drive_target && right_stepper_inited && right_stepper_drive_idx == right_stepper_drive_target) {
+  if (left_stepper_is_inited && left_stepper_drive_idx == left_stepper_drive_target && right_stepper_is_inited && right_stepper_drive_idx == right_stepper_drive_target) {
 
     step* next_step = get_next_step();
 
-    /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
-     * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
-     * when they resume stepping.
-    */
+    // check whether buffer is empty
     if (next_step == nullptr) {
+
+      /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
+       * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
+       * when they resume stepping.
+      */
       left_stepper_us_per_drive = 0;
       left_stepper_us_per_drive_target = 0;
       right_stepper_us_per_drive = 0;
       right_stepper_us_per_drive_target = 0;
+
+      // disable steppers, which cuts current to their coils and lets them cool.
+      if (left_driver_disable_pin >= 0 && !left_driver_is_disabled) {
+        digitalWrite(left_driver_disable_pin, HIGH);
+        left_driver_is_disabled = true;
+      }
+      if (right_driver_disable_pin >= 0 && !right_driver_is_disabled) {
+        digitalWrite(right_driver_disable_pin, HIGH);
+        right_driver_is_disabled = true;
+      }
     }
 
     /* if the stepper just completed, then we'll set the drive values but wait the given drive delay to ensure proper 
@@ -696,7 +734,7 @@ void loop() {
      * driving the steppers immediately since we must have just received a new step command to resume stepping.
     */
     else {
-      start_step(next_step, !completed_left_stepper, !completed_right_stepper, curr_time_us);
+      start_step(next_step, !completed_left_stepper_this_loop, !completed_right_stepper_this_loop, curr_time_us);
       delete next_step;
     }
   }

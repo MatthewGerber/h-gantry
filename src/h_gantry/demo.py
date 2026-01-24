@@ -40,6 +40,7 @@ def main():
         output_rotor_ratio=stepper_output_rotor_ratio,
         driver=StepperMotorDriverArduinoA4988(
             driver_pin=5,
+            disable_pin=10,
             direction_pin=6,
             identifier=0,
             serial=locking_serial,
@@ -53,6 +54,7 @@ def main():
         output_rotor_ratio=stepper_output_rotor_ratio,
         driver=StepperMotorDriverArduinoA4988(
             driver_pin=7,
+            disable_pin=11,
             direction_pin=8,
             identifier=1,
             serial=locking_serial,
