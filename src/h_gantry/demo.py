@@ -83,8 +83,8 @@ def main():
     # gantry.move_to_offset(0.0, -10.0, 10.0, False)
     # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    # gantry.calibrate(100.0)
-    # gantry.center(100.0, True, True)
+    gantry.calibrate(100.0)
+    gantry.center(100.0, True, True)
     # gantry.move_to_top_limit(10.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 10.0, True)
@@ -97,10 +97,10 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-    try:
-        time.sleep(1000.0)
-    except KeyboardInterrupt:
-        pass
+    # try:
+    #     time.sleep(1000.0)
+    # except KeyboardInterrupt:
+    #     pass
 
     # gantry.draw_spirograph_from_params(
     #     350,
