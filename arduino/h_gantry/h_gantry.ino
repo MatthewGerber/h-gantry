@@ -250,7 +250,7 @@ const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
-const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 2;  // 1 byte per pin plus 2 bytes for optional direction pin, which is -1 for no direction pin.
+const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 4;  // 1 byte per pin plus 4 bytes (2 for optional disable pin and 2 for optional direction pin, each of which is -1 for no pin)
 const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
 
 // command:  step
