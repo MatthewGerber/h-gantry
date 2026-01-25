@@ -591,6 +591,8 @@ void loop() {
         left_driver_disable_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
         if (left_driver_disable_pin >= 0) {
           pinMode(left_driver_disable_pin, OUTPUT);
+          digitalWrite(left_driver_disable_pin, HIGH);
+          left_driver_is_disabled = true;
         }
 
         left_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS + 2);
@@ -621,6 +623,8 @@ void loop() {
         right_driver_disable_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
         if (right_driver_disable_pin >= 0) {
           pinMode(right_driver_disable_pin, OUTPUT);
+          digitalWrite(right_driver_disable_pin, HIGH);
+          right_driver_is_disabled = true;
         }
 
         right_driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS + 2);
