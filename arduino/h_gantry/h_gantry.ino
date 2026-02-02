@@ -269,16 +269,10 @@ void long_to_bytes(long value, byte bytes[]) {
 
 long bytes_to_long(byte bytes[], size_t start_idx) {
   uint32_t value = ((uint32_t)bytes[start_idx]) << 24;
-  value |= bytes[start_idx + 1] << 16;
-  value |= bytes[start_idx + 2] << 8;
-  value |= bytes[start_idx + 3];
+  value |= ((uint32_t)bytes[start_idx + 1]) << 16;
+  value |= ((uint32_t)bytes[start_idx + 2]) << 8;
+  value |= ((uint32_t)bytes[start_idx + 3]);
   return (int32_t)value;
-}
-
-void write_long(long value) {
-  byte bytes[LONG_BYTES_LEN];
-  long_to_bytes(value, bytes);
-  SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
 void unsigned_long_to_bytes(unsigned long value, byte bytes[]) {
@@ -290,9 +284,9 @@ void unsigned_long_to_bytes(unsigned long value, byte bytes[]) {
 
 unsigned long bytes_to_unsigned_long(byte bytes[], size_t start_idx) {
   uint32_t value = ((uint32_t)bytes[start_idx]) << 24;
-  value |= bytes[start_idx + 1] << 16;
-  value |= bytes[start_idx + 2] << 8;
-  value |= bytes[start_idx + 3];
+  value |= ((uint32_t)bytes[start_idx + 1]) << 16;
+  value |= ((uint32_t)bytes[start_idx + 2]) << 8;
+  value |= ((uint32_t)bytes[start_idx + 3]);
   return value;
 }
 
@@ -309,7 +303,7 @@ void int_to_bytes(int value, byte bytes[]) {
 
 int bytes_to_int(byte bytes[], size_t start_idx) {
   uint16_t value = ((uint16_t)bytes[start_idx]) << 8;
-  value |= bytes[start_idx + 1];
+  value |= ((uint16_t)bytes[start_idx + 1]);
   return (int16_t)value;
 }
 
@@ -320,7 +314,7 @@ void unsigned_int_to_bytes(unsigned int value, byte bytes[]) {
 
 unsigned int bytes_to_unsigned_int(byte bytes[], size_t start_idx) {
   uint16_t value = ((uint16_t)bytes[start_idx]) << 8;
-  value |= bytes[start_idx + 1];
+  value |= ((uint16_t)bytes[start_idx + 1]);
   return value;
 }
 
@@ -329,6 +323,12 @@ void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[1] = src[src_start_idx + 1];
   dest[2] = src[src_start_idx + 2];
   dest[3] = src[src_start_idx + 3];
+}
+
+void write_long(long value) {
+  byte bytes[LONG_BYTES_LEN];
+  long_to_bytes(value, bytes);
+  SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
 void write_float(floatbytes f) {
@@ -645,13 +645,13 @@ void loop() {
         byte args[CMD_INIT_LIMIT_SWITCHES_ARGS_LEN];
         SerialUART.readBytes(args, CMD_INIT_LIMIT_SWITCHES_ARGS_LEN);
         left_limit_switch_pin = args[0];
-        pinMode(left_limit_switch_pin, INPUT);
+        pinMode(left_limit_switch_pin, INPUT_PULLUP);
         right_limit_switch_pin = args[1];
-        pinMode(right_limit_switch_pin, INPUT);
+        pinMode(right_limit_switch_pin, INPUT_PULLUP);
         bottom_limit_switch_pin = args[2];
-        pinMode(bottom_limit_switch_pin, INPUT);
+        pinMode(bottom_limit_switch_pin, INPUT_PULLUP);
         top_limit_switch_pin = args[3];
-        pinMode(top_limit_switch_pin, INPUT);
+        pinMode(top_limit_switch_pin, INPUT_PULLUP);
         limit_switches_inited = true;
         write_bool(true);
       }
