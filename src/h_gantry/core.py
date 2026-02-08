@@ -9,7 +9,7 @@ from datetime import timedelta
 from enum import IntEnum
 from threading import RLock
 from time import time, sleep
-from typing import Tuple, List, Optional, Callable, Union
+from typing import Tuple, List, Optional, Union
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -22,7 +22,7 @@ from raspberry_py.gpio import CkPin, Component, Clock
 from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
-from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
+from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
 from raspberry_py.rest.application import RpyFlask
 
 
@@ -39,7 +39,8 @@ class Move:
             move_y_mm: float,
             left_stepper_steps: int,
             right_stepper_steps: int,
-            time_to_step: timedelta
+            time_to_step: timedelta,
+            idx: int
     ):
         """
         Initialize the move.
@@ -51,6 +52,7 @@ class Move:
         :param left_stepper_steps: Left stepper steps.
         :param right_stepper_steps: Right stepper steps.
         :param time_to_step: Duration of step.
+        :param idx: Sequence index.
         """
 
         self.to_x_mm = to_x_mm
@@ -60,10 +62,13 @@ class Move:
         self.left_stepper_steps = left_stepper_steps
         self.right_stepper_steps = right_stepper_steps
         self.time_to_step = time_to_step
+        self.idx = idx
 
         self.timestamp = time()
-        self.get_left_driver_return_value: Optional[Callable] = None
-        self.get_right_driver_return_value: Optional[Callable] = None
+
+        # the driver return values are initially empty and are filled in when the move is sent to the driver
+        self.get_left_driver_return_value: Optional[StepperMotorDriverAsynchronousReturn] = None
+        self.get_right_driver_return_value: Optional[StepperMotorDriverAsynchronousReturn] = None
 
 
 class HGantry(Component):
@@ -205,6 +210,11 @@ class HGantry(Component):
             self.y = 0.0
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
+            self.move_idx = 0
+
+        # synchronize driver indices with gantry move index
+        self.left_driver.idx = self.move_idx
+        self.right_driver.idx = self.move_idx
 
         self.actual_x = self.x
         self.actual_y = self.y
@@ -362,7 +372,8 @@ class HGantry(Component):
                     'y': self.y,
                     'left_right_mm': self.left_right_mm,
                     'bottom_top_mm': self.bottom_top_mm,
-                    'enabled': self.enabled
+                    'enabled': self.enabled,
+                    'move_idx': self.move_idx
                 }))
         else:
             logging.warning('Not saving gantry state.')
@@ -622,8 +633,10 @@ class HGantry(Component):
                 move_y_mm,
                 left_stepper_steps,
                 right_stepper_steps,
-                time_to_step
+                time_to_step,
+                self.move_idx
             ))
+            self.move_idx += 1
             self.send_moves_to_arduino_if_needed()
 
             # block for the move if needed
@@ -698,8 +711,7 @@ class HGantry(Component):
 
                 self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
 
-                # push all bytes to arduino at once. this is how send moves in a single lump, minimizing the number of
-                # serial read/writes.
+                # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
 
                 logging.info(f'Sent {len(moves_to_send)} move(s) to Arduino.')
@@ -713,8 +725,8 @@ class HGantry(Component):
 
         :param clear_move_buffers: Whether to continue sending and reading moves until all move buffers are clear. If
         False, then this function will only read one or more moves if they are already present in the serial read buffer
-        :return: True if a move was read without hitting a limit switch; False if limit switch was hit by a read move
-        Will be None if no moves were read.
+        :return: True if a move was read without hitting a limit switch, False if limit switch was hit by a read move,
+        and None if no moves were read.
         """
 
         with self.move_lock:
@@ -736,17 +748,18 @@ class HGantry(Component):
                 # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will
                 # come back in an unpredictable order. however, the result tuples have the stepper identifier as the
                 # first element, so we can key on that to obtain the result for each stepper.
-                stepper_id_skipped_steps = {
-                    stepper_id: skipped_steps
-                    for stepper_id, skipped_steps in [
+                stepper_id_skipped_steps_idx = {
+                    stepper_id: (skipped_steps, idx)
+                    for stepper_id, skipped_steps, idx in [
                         move.get_left_driver_return_value(),
                         move.get_right_driver_return_value()
                     ]
                 }
+                assert len(stepper_id_skipped_steps_idx) == 2
+                assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
                 elapsed_seconds = time() - move.timestamp
-                assert len(stepper_id_skipped_steps) == 2
-                left_stepper_skipped_steps = stepper_id_skipped_steps[self.left_driver.identifier]
-                right_stepper_skipped_steps = stepper_id_skipped_steps[self.right_driver.identifier]
+                left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
+                right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
 
                 # update stepper states now that we have results
                 left_stepper_state: Stepper.State = self.left_stepper.state
