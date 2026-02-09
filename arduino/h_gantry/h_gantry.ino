@@ -396,12 +396,15 @@ void stop_right_stepper() {
 }
 
 void write_stepper_done(byte stepper_id, long limit_skipped_drives, unsigned int idx) {
-    write_byte(stepper_id);
+    byte response[7];
+    response[0] = stepper_id;
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = limit_skipped_drives / float(DRIVES_PER_STEP);
-    write_float(limit_skipped_steps);
-    SerialUART.flush();  // it's unclear why we need this flush; however, without it, only three of four bytes for the float are written.
-    write_unsigned_int(idx);
+    memcpy(response + 1, limit_skipped_steps.bytes, FLOAT_BYTES_LEN);
+    byte two[2];
+    unsigned_int_to_bytes(idx, two);
+    memcpy(response + 5, two, 2);
+    SerialUART.write(response, 7);
     SerialUART.flush();
 }
 
