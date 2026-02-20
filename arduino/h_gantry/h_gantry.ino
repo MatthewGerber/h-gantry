@@ -22,7 +22,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1000;  // fastest driving directly from a dead stop
-const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+const float FULL_ACCEL_INTERVAL_SEC = 0.01;  // fastest acceleration from dead stop to fastest
 const byte MICROSTEP_MS1_OUTPUT_PIN = 9;
 
 // config for the ULN2003, which is driven by four output pins (4 driver pins @ 2 drives per step):
@@ -191,11 +191,18 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     left_stepper_limit_skipped_drives = 0;
     left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
 
-    // if we're accelerating from a dead stop, moving slower than the dead-stop acceleration, or changing direction, then set the drive 
-    // speed to the fastest permissible from a stopped position. if none of these conditions is true, then we'll continue driving in the 
-    // same direction and will accelerate/decelerate from the current speed.
-    if (left_stepper_us_per_drive == 0 || left_stepper_us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED || left_stepper_changing_direction) {
+    /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate 
+     * (per limit) or decelerate (instantaneously) from this speed upon the next loop.
+    */
+    if (left_stepper_changing_direction) {
       left_stepper_us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
+    }
+    /* otherwise, maintain the current empirical drive rate and accelerate/decelerate from this rate. we might be starting
+     * from a dead stop rather than continuing from a previous step, in which case the empirical rate might be slower than
+     * the dead-stop acceleration. limit the drive rate to the minimum of the two.
+    */
+    else {
+      left_stepper_us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, curr_time_us - left_stepper_previous_drive_us);
     }
 
     if (drive_left_immediately) {
@@ -230,11 +237,18 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
     right_stepper_limit_skipped_drives = 0;
     right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
 
-    // if we're accelerating from a dead stop, moving slower than the dead-stop acceleration, or changing direction, then set the drive 
-    // speed to the fastest permissible from a stopped position. if none of these conditions is true, then we'll continue driving in the 
-    // same direction and will accelerate/decelerate from the current speed.
-    if (right_stepper_us_per_drive == 0 || right_stepper_us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED || right_stepper_changing_direction) {
+    /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate 
+     * (per limit) or decelerate (instantaneously) from this speed upon the next loop.
+    */
+    if (right_stepper_changing_direction) {
       right_stepper_us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
+    }
+    /* otherwise, maintain the current empirical drive rate and accelerate/decelerate from this rate. we might be starting
+     * from a dead stop rather than continuing from a previous step, in which case the empirical rate might be slower than
+     * the dead-stop acceleration. limit the drive rate to the minimum of the two.
+    */
+    else {
+      right_stepper_us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, curr_time_us - right_stepper_previous_drive_us);
     }
 
     if (drive_right_immediately) {
@@ -527,6 +541,10 @@ void loop() {
         left_stepper_previous_acceleration_us = curr_time_us;
       }
     }
+    // if the stepper is at the target drive rate, mark the current time as the one from which to perform subsequent accelerations.
+    else if (left_stepper_us_per_drive == left_stepper_us_per_drive_target) {
+      left_stepper_previous_acceleration_us = curr_time_us;
+    }
     // allow instantaneous deceleration to the target
     else {
       left_stepper_us_per_drive = left_stepper_us_per_drive_target;
@@ -544,6 +562,10 @@ void loop() {
         right_stepper_us_per_drive -= right_stepper_accelerate_us_per_drive;
         right_stepper_previous_acceleration_us = curr_time_us;
       }
+    }
+    // if the stepper is at the target drive rate, mark the current time as the one from which to perform subsequent accelerations.
+    else if (right_stepper_us_per_drive == right_stepper_us_per_drive_target) {
+      right_stepper_previous_acceleration_us = curr_time_us;
     }
     // allow instantaneous deceleration to the target
     else {
@@ -707,7 +729,7 @@ void loop() {
       }
       unsigned int right_stepper_step_idx = bytes_to_unsigned_int(args, 14);
 
-      // indices must be the same
+      // indices must be the same; otherwise, we're out of sync with the caller.
       if (left_stepper_step_idx == right_stepper_step_idx) {
         add_step(
           left_stepper_num_drives, 
