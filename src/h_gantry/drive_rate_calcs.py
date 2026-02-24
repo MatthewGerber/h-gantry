@@ -65,7 +65,7 @@ def get_drive_delays_us(
             max_accel_this_drive = delay_to_curr_drive_us * max_drive_acc_us_per_drive_per_us
             adjusted_delay_us = max(target_delay_per_drive_us, delay_to_curr_drive_us - max_accel_this_drive)
 
-            # if we obtain the target, then we need to recalculate the target since we've lost some time while
+            # if we reach the target, then we need to recalculate the target since we've lost some time while
             # accelerating. this ensures that we hit the overall duration correctly.
             if adjusted_delay_us <= target_delay_per_drive_us:
                 num_remaining_delays = len(drive_delay_us) - i - 1

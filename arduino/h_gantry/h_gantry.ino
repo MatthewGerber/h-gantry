@@ -67,6 +67,7 @@ unsigned long left_stepper_us_per_drive;
 unsigned long left_stepper_previous_drive_us;
 unsigned long left_stepper_us_per_drive_target;
 unsigned long left_stepper_previous_acceleration_us;
+unsigned long left_stepper_us_remaining;
 bool left_stepper_is_inited = false;
 
 // right stepper
@@ -83,6 +84,7 @@ unsigned long right_stepper_us_per_drive;
 unsigned long right_stepper_previous_drive_us;
 unsigned long right_stepper_us_per_drive_target;
 unsigned long right_stepper_previous_acceleration_us;
+unsigned long right_stepper_us_remaining;
 bool right_stepper_is_inited = false;
 
 unsigned int curr_step_idx;
@@ -90,10 +92,10 @@ unsigned int curr_step_idx;
 // linked list of steps to take, acting as a read buffer. each step determines how the
 // left and right steppers should move in tandem.
 struct step {
-  int left_stepper_num_drives;
-  unsigned long left_stepper_us_per_drive;
-  int right_stepper_num_drives;
-  unsigned long right_stepper_us_per_drive;
+  long left_stepper_num_drives;
+  unsigned long left_stepper_us_to_drive;
+  long right_stepper_num_drives;
+  unsigned long right_stepper_us_to_drive;
   unsigned int idx;
   step* next;
 };
@@ -105,24 +107,24 @@ unsigned int steps_len = 0;
  * Add a step to the move buffer.
  *
  * @param left_stepper_num_drives Number of drives to apply to the left stepper.
- * @param left_stepper_us_per_drive Microseconds per drive.
+ * @param left_stepper_us_to_drive Microseconds to drive.
  * @param right_stepper_num_drives Number of drives to apply to the right stepper.
- * @param right_stepper_us_per_drive Microseconds per drive.
+ * @param right_stepper_us_to_drive Microseconds to drive.
  * @param idx Sequence index.
  */
 void add_step(
-  int left_stepper_num_drives, 
-  unsigned long left_stepper_us_per_drive,
-  int right_stepper_num_drives, 
-  unsigned long right_stepper_us_per_drive,
+  long left_stepper_num_drives, 
+  unsigned long left_stepper_us_to_drive,
+  long right_stepper_num_drives, 
+  unsigned long right_stepper_us_to_drive,
   unsigned int idx
 ) {
 
   step* new_step = new step();
   new_step->left_stepper_num_drives = left_stepper_num_drives;
-  new_step->left_stepper_us_per_drive = left_stepper_us_per_drive;
+  new_step->left_stepper_us_to_drive = left_stepper_us_to_drive;
   new_step->right_stepper_num_drives = right_stepper_num_drives;
-  new_step->right_stepper_us_per_drive = right_stepper_us_per_drive;
+  new_step->right_stepper_us_to_drive = right_stepper_us_to_drive;
   new_step->idx = idx;
   new_step->next = nullptr;
 
@@ -152,6 +154,31 @@ step* get_next_step() {
     steps_len -=1;
   }
   return next_step;
+}
+
+/**
+ * Get the drive-rate target.
+ *
+ * @param num_drives: Number of drives.
+ * @param first_drive_immediate: Whether the first drive should be immediate.
+ * @param us_to_drive: Total us to drive.
+ * @return The drive-rate target.
+*/
+unsigned long get_drive_rate_target(long num_drives, bool first_drive_immediate, unsigned long us_to_drive) {
+
+    // if the first drive is immediate, then we have one fewer delays than drives.
+    long num_delays = num_drives;
+    if (first_drive_immediate) {
+      num_delays -= 1;
+    }
+
+    // impose maximum drive rate (minimum delay)
+    unsigned long target = (unsigned long)(us_to_drive / float(num_delays));
+    if (target < MIN_US_PER_DRIVE) {
+      target = MIN_US_PER_DRIVE;
+    }
+
+    return target;
 }
 
 /**
@@ -189,9 +216,11 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
       digitalWrite(left_driver_dir_pin, left_stepper_drive_increment < 0 ? LOW : HIGH);
     }
     left_stepper_limit_skipped_drives = 0;
-    left_stepper_us_per_drive_target = to_start->left_stepper_us_per_drive;
 
-    /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate 
+    left_stepper_us_remaining = to_start->left_stepper_us_to_drive;
+    left_stepper_us_per_drive_target = get_drive_rate_target(abs(to_start->left_stepper_num_drives), drive_left_immediately, left_stepper_us_remaining);
+
+    /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate
      * (per limit) or decelerate (instantaneously) from this speed upon the next loop.
     */
     if (left_stepper_changing_direction) {
@@ -235,7 +264,9 @@ void start_step(step* to_start, bool drive_left_immediately, bool drive_right_im
       digitalWrite(right_driver_dir_pin, right_stepper_drive_increment < 0 ? LOW : HIGH);
     }
     right_stepper_limit_skipped_drives = 0;
-    right_stepper_us_per_drive_target = to_start->right_stepper_us_per_drive;
+
+    right_stepper_us_remaining = to_start->right_stepper_us_to_drive;
+    right_stepper_us_per_drive_target = get_drive_rate_target(abs(to_start->right_stepper_num_drives), drive_right_immediately, right_stepper_us_remaining);
 
     /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate 
      * (per limit) or decelerate (instantaneously) from this speed upon the next loop.
@@ -537,8 +568,14 @@ void loop() {
         left_stepper_accelerate_us_per_drive = permissible_acceleration_us;
       }
       if (left_stepper_accelerate_us_per_drive > 0) {
+
         left_stepper_us_per_drive -= left_stepper_accelerate_us_per_drive;
         left_stepper_previous_acceleration_us = curr_time_us;
+
+        // if we've achieved the target rate, then recalculate the target to make up for time lost to acceleration.
+        if (left_stepper_us_per_drive == left_stepper_us_per_drive_target) {
+          left_stepper_us_per_drive_target = get_drive_rate_target(abs(left_stepper_drives_remaining), false, left_stepper_us_remaining);
+        }
       }
     }
     // if the stepper is at the target drive rate, mark the current time as the one from which to perform subsequent accelerations.
@@ -559,8 +596,14 @@ void loop() {
         right_stepper_accelerate_us_per_drive = permissible_acceleration_us;
       }
       if (right_stepper_accelerate_us_per_drive > 0) {
+
         right_stepper_us_per_drive -= right_stepper_accelerate_us_per_drive;
         right_stepper_previous_acceleration_us = curr_time_us;
+
+        // if we've achieved the target rate, then recalculate the target to make up for time lost to acceleration.
+        if (right_stepper_us_per_drive == right_stepper_us_per_drive_target) {
+          right_stepper_us_per_drive_target = get_drive_rate_target(abs(right_stepper_drives_remaining), false, right_stepper_us_remaining);
+        }
       }
     }
     // if the stepper is at the target drive rate, mark the current time as the one from which to perform subsequent accelerations.
@@ -576,8 +619,10 @@ void loop() {
      * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
      * caller when the drive index reaches the target.
     */
-    if ((left_stepper_drive_idx != left_stepper_drive_target) && ((curr_time_us - left_stepper_previous_drive_us) >= left_stepper_us_per_drive)) {
+    unsigned long left_stepper_us_elapsed_since_previous_drive = curr_time_us - left_stepper_previous_drive_us;
+    if ((left_stepper_drive_idx != left_stepper_drive_target) && (left_stepper_us_elapsed_since_previous_drive >= left_stepper_us_per_drive)) {
       left_stepper_drive_idx += left_stepper_drive_increment;
+      left_stepper_us_remaining = max(0, left_stepper_us_remaining - left_stepper_us_elapsed_since_previous_drive);
       if (limited_travel) {
         left_stepper_limit_skipped_drives += left_stepper_drive_increment;
       }
@@ -594,8 +639,10 @@ void loop() {
      * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to the
      * caller when the drive index reaches the target.
     */
-    if ((right_stepper_drive_idx != right_stepper_drive_target) && ((curr_time_us - right_stepper_previous_drive_us) >= right_stepper_us_per_drive)) {
+    unsigned long right_stepper_us_elapsed_since_previous_drive = curr_time_us - right_stepper_previous_drive_us;
+    if ((right_stepper_drive_idx != right_stepper_drive_target) && (right_stepper_us_elapsed_since_previous_drive >= right_stepper_us_per_drive)) {
       right_stepper_drive_idx += right_stepper_drive_increment;
+      right_stepper_us_remaining = max(0, right_stepper_us_remaining - right_stepper_us_elapsed_since_previous_drive);
       if (limited_travel) {
         right_stepper_limit_skipped_drives += right_stepper_drive_increment;
       }
@@ -703,39 +750,23 @@ void loop() {
       byte args[CMD_STEP_ARGS_LEN];
       SerialUART.readBytes(args, CMD_STEP_ARGS_LEN);
 
-      // left stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
-      // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int left_stepper_num_drives = bytes_to_int(args, 2) * DRIVES_PER_STEP;
-      unsigned long left_stepper_us_per_drive = 0;
-      if (left_stepper_num_drives != 0) {
-        unsigned int left_stepper_ms_to_step = bytes_to_unsigned_int(args, 4);
-        left_stepper_us_per_drive = (unsigned long)((left_stepper_ms_to_step / float(abs(left_stepper_num_drives))) * 1000.0);
-        if (left_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-          left_stepper_us_per_drive = MIN_US_PER_DRIVE;
-        }
-      }
+      // left stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
+      long left_stepper_num_drives = bytes_to_int(args, 2) * DRIVES_PER_STEP;
+      unsigned long left_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 4)) * 1000;
       unsigned int left_stepper_step_idx = bytes_to_unsigned_int(args, 6);
 
-      // right stepper:  calculate number of drives and microseconds per drive based on total ms to step. impose maximum drive rate.
-      // skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
-      int right_stepper_num_drives = bytes_to_int(args, 10) * DRIVES_PER_STEP;
-      unsigned long right_stepper_us_per_drive = 0;
-      if (right_stepper_num_drives != 0) {
-        unsigned int right_stepper_ms_to_step = bytes_to_unsigned_int(args, 12);
-        right_stepper_us_per_drive = (unsigned long)((right_stepper_ms_to_step / float(abs(right_stepper_num_drives))) * 1000.0);
-        if (right_stepper_us_per_drive < MIN_US_PER_DRIVE) {
-          right_stepper_us_per_drive = MIN_US_PER_DRIVE;
-        }
-      }
+      // right stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
+      long right_stepper_num_drives = bytes_to_int(args, 10) * DRIVES_PER_STEP;
+      unsigned long right_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 12)) * 1000;
       unsigned int right_stepper_step_idx = bytes_to_unsigned_int(args, 14);
 
       // indices must be the same; otherwise, we're out of sync with the caller.
       if (left_stepper_step_idx == right_stepper_step_idx) {
         add_step(
           left_stepper_num_drives, 
-          left_stepper_us_per_drive,
+          left_stepper_us_to_drive,
           right_stepper_num_drives, 
-          right_stepper_us_per_drive,
+          right_stepper_us_to_drive,
           left_stepper_step_idx 
         );
       }
