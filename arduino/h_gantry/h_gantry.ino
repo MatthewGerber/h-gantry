@@ -1,4 +1,5 @@
-// SerialUSB writes to the arduino IDE serial monitor; _UART1_ writes to the serial tx/rx gpio pins
+// SerialUSB writes to the arduino IDE serial monitor. _UART1_ writes to the serial tx/rx gpio pins.
+// define a nicer variable to refer to serial tx/rx.
 #define SerialUART _UART1_
 
 const size_t FLOAT_BYTES_LEN = 4;
@@ -13,7 +14,7 @@ typedef union {
 } floatbytes;
 
 // stepper driver configuration
-const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the stepper motor driver
+const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the A4988 driver
 const byte DRIVES_PER_STEP = 4;  // 2 drives/microstep (HIGH then LOW) * 2 microsteps/step (HALF step) = 4 drives
 const byte DRIVE_SEQUENCE_LEN = 2;  // always 2, since microstepping configuration is set by separate output pins to the A4988 driver
 const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
@@ -22,11 +23,11 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1000;  // fastest driving directly from a dead stop
-const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
-const byte MICROSTEP_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
+const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
 
 // Microstep configuration for the A4988
-// MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1
+// MS1	MS2	  MS3	Microstep Resolution -- these are pull-down, so to get half stepping we only need to output HIGH to MS1.
 // Low	Low	  Low	Full step
 // High	Low   Low	Half step
 // Low	High  Low	Quarter step
@@ -51,13 +52,16 @@ const byte MICROSTEP_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 
 // const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
 // const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 
+// maximum acceleration (us/drive/us):  slowest to fastest within the full-acceleration interval
+const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));
+
 // command id and component id
 const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
 const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 4;  // 1 byte per pin plus 4 bytes (2 for optional disable pin and 2 for optional direction pin, each of which is -1 for no pin)
-const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;
+const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;  // one read pin per switch * 4 switches
 
 // command:  step
 const byte CMD_STEP = 2;
@@ -66,26 +70,24 @@ const byte CMD_STEP_ARGS_LEN = 16;
 // command:  stop
 const byte CMD_STOP = 3;
 
-// maximum acceleration (us/drive/us):  slowest to fastest within the full-acceleration interval
-const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));
-
-// reusable structure for stepper configuration and state
+// reusable structure for stepper configuration and drive state
 struct stepper {
   byte identifier;
+  byte driver_num_in_pins = STEPPER_DRIVER_NUM_IN_PINS;
   byte driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
-  int driver_disable_pin;  // -1 for no disable pin
-  bool driver_is_disabled;
-  int driver_dir_pin;  // -1 for no direction pin
-  long drive_idx;  // signed for direction
-  long drive_target;  // signed for direction
-  long drives_remaining;  // signed for direction
-  int drive_increment;  // -1 or +1
-  long limit_skipped_drives;  // number of drives skipped due to limit switches
-  unsigned long us_per_drive;  // current drive rate
-  unsigned long previous_drive_us;  // time of previous drive
-  unsigned long us_per_drive_target;  // target drive rate to be obtained via acceleration/deceleration
-  unsigned long previous_acceleration_us;  // time of previous acceleration
-  unsigned long us_remaining;  // time remaining to complete drives to target
+  int driver_disable_pin = -1;  // -1 for no disable pin
+  bool driver_is_disabled = false;
+  int driver_dir_pin = -1;  // -1 for no direction pin
+  long drive_idx = 0;  // signed for direction
+  long drive_target = 0;  // signed for direction
+  long drives_remaining = 0;  // signed for direction
+  int drive_increment = 0;  // -1 or +1
+  long limit_skipped_drives = 0;  // number of drives skipped due to limit switches
+  unsigned long us_per_drive = 0;  // current drive rate
+  unsigned long previous_drive_us = 0;  // time of previous drive
+  unsigned long us_per_drive_target = 0;  // target drive rate to be obtained via acceleration/deceleration
+  unsigned long previous_acceleration_us = 0;  // time of previous acceleration
+  unsigned long us_remaining = 0;  // time remaining to complete drives to target
   bool is_inited = false;  // whether driver is initialized
 };
 
@@ -96,9 +98,8 @@ stepper right_stepper;
 // left and right steppers should move in tandem.
 struct step {
   long left_stepper_num_drives;
-  unsigned long left_stepper_us_to_drive;
   long right_stepper_num_drives;
-  unsigned long right_stepper_us_to_drive;
+  unsigned long us_to_drive;
   unsigned int idx;
   step* next;
 };
@@ -106,7 +107,7 @@ struct step {
 step* steps_head = nullptr;
 step* steps_tail = nullptr;
 unsigned int steps_len = 0;
-unsigned int curr_step_idx;  // current step index being processed
+unsigned int curr_step_idx = 0;  // current step index being processed; will be 0 when not processing a step.
 
 void long_to_bytes(long value, byte bytes[]) {
   bytes[0] = (byte)(value >> 24);
@@ -121,6 +122,12 @@ long bytes_to_long(byte bytes[], size_t start_idx) {
   value |= ((uint32_t)bytes[start_idx + 2]) << 8;
   value |= ((uint32_t)bytes[start_idx + 3]);
   return (int32_t)value;
+}
+
+void write_long(long value) {
+  byte bytes[LONG_BYTES_LEN];
+  long_to_bytes(value, bytes);
+  SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
 void unsigned_long_to_bytes(unsigned long value, byte bytes[]) {
@@ -166,17 +173,17 @@ unsigned int bytes_to_unsigned_int(byte bytes[], size_t start_idx) {
   return value;
 }
 
+void write_unsigned_int(unsigned int value) {
+  byte bytes[UNSIGNED_INT_BYTES_LEN];
+  unsigned_int_to_bytes(value, bytes);
+  SerialUART.write(bytes, UNSIGNED_INT_BYTES_LEN);
+}
+
 void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
   dest[0] = src[src_start_idx];
   dest[1] = src[src_start_idx + 1];
   dest[2] = src[src_start_idx + 2];
   dest[3] = src[src_start_idx + 3];
-}
-
-void write_long(long value) {
-  byte bytes[LONG_BYTES_LEN];
-  long_to_bytes(value, bytes);
-  SerialUART.write(bytes, LONG_BYTES_LEN);
 }
 
 void write_float(floatbytes f) {
@@ -191,12 +198,6 @@ void write_byte(byte value) {
   SerialUART.write(value);
 }
 
-void write_unsigned_int(unsigned int value) {
-  byte bytes[UNSIGNED_INT_BYTES_LEN];
-  unsigned_int_to_bytes(value, bytes);
-  SerialUART.write(bytes, UNSIGNED_INT_BYTES_LEN);
-}
-
 byte mod(long x, byte y) {
   return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
@@ -205,34 +206,34 @@ byte mod(long x, byte y) {
  * Add a step to the move buffer.
  *
  * @param left_stepper_num_drives Number of drives to apply to the left stepper.
- * @param left_stepper_us_to_drive Microseconds in which to achieve the left-stepper drives.
  * @param right_stepper_num_drives Number of drives to apply to the right stepper.
- * @param right_stepper_us_to_drive Microseconds in which to achieve the right-stepper drives.
+ * @param us_to_drive Microseconds in which to achieve the drives.
  * @param idx Step index.
 */
 void add_step(
   long left_stepper_num_drives, 
-  unsigned long left_stepper_us_to_drive,
   long right_stepper_num_drives, 
-  unsigned long right_stepper_us_to_drive,
+  unsigned long us_to_drive,
   unsigned int idx
 ) {
 
   step* new_step = new step();
   new_step->left_stepper_num_drives = left_stepper_num_drives;
-  new_step->left_stepper_us_to_drive = left_stepper_us_to_drive;
   new_step->right_stepper_num_drives = right_stepper_num_drives;
-  new_step->right_stepper_us_to_drive = right_stepper_us_to_drive;
+  new_step->us_to_drive = us_to_drive;
   new_step->idx = idx;
   new_step->next = nullptr;
 
+  // if list is empty, head and tail both point to new step.
   if (steps_head == nullptr) {
     steps_head = steps_tail = new_step;
   }
+  // otherwise, there is a tail, and its next points to the new step.
   else {
     steps_tail->next = new_step;
     steps_tail = new_step;
   }
+
   steps_len += 1;
 
 }
@@ -258,74 +259,70 @@ step* get_next_step() {
  * Initialize a stepper.
  * 
  * @param stepper_to_init Stepper to initialize.
- * @param curr_time_us Current time in us.
 */
-void init_stepper(
-  stepper* stepper_to_init, 
-  unsigned long curr_time_us
-) {
+void init_stepper(stepper* stepper_to_init) {
 
   byte args[CMD_INIT_STEPPER_ARGS_LEN];
   SerialUART.readBytes(args, CMD_INIT_STEPPER_ARGS_LEN);
 
-  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < stepper_to_init->driver_num_in_pins; ++pin_idx) {
     byte pin = args[pin_idx];
     stepper_to_init->driver_pins[pin_idx] = pin;
     pinMode(pin, OUTPUT);
   }
 
-  stepper_to_init->driver_disable_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS);
+  stepper_to_init->driver_disable_pin = bytes_to_int(args, stepper_to_init->driver_num_in_pins);
   if (stepper_to_init->driver_disable_pin >= 0) {
     pinMode(stepper_to_init->driver_disable_pin, OUTPUT);
     digitalWrite(stepper_to_init->driver_disable_pin, HIGH);
     stepper_to_init->driver_is_disabled = true;
   }
 
-  stepper_to_init->driver_dir_pin = bytes_to_int(args, STEPPER_DRIVER_NUM_IN_PINS + 2);
+  stepper_to_init->driver_dir_pin = bytes_to_int(args, stepper_to_init->driver_num_in_pins + 2);
   if (stepper_to_init->driver_dir_pin >= 0) {
     pinMode(stepper_to_init->driver_dir_pin, OUTPUT);
   }
 
-  stepper_to_init->drive_idx = 0;
-  stepper_to_init->drive_target = stepper_to_init->drive_idx;
-  stepper_to_init->drives_remaining = 0;
-  stepper_to_init->drive_increment = 0;
-  stepper_to_init->us_per_drive = 0;
-  stepper_to_init->us_per_drive_target = 0;
   stepper_to_init->is_inited = true;
   write_bool(true);
+  
 }
 
 /**
- * Get the drive-rate target.
+ * Get the drive-delay target that achieves a number of drives in a given time interval.
  *
- * @param num_drives Number of drives.
- * @param first_drive_immediate Whether the first drive should be immediate.
- * @param us_to_drive Total us to drive.
- * @return The drive-rate target.
+ * @param stepper_to_delay Stepper for which to get delay.
+ * @param first_drive_immediate Whether the first drive should be immediate (no delay) or included in the delay schedule.
+ * @return The drive-delay target.
 */
-unsigned long get_drive_rate_target(long num_drives, bool first_drive_immediate, unsigned long us_to_drive) {
+unsigned long get_drive_delay_target(stepper* stepper_to_delay, bool first_drive_immediate) {
 
     // if the first drive is immediate, then we have one fewer delays than drives.
-    long num_delays = num_drives;
+    unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
     if (first_drive_immediate) {
       num_delays -= 1;
     }
 
+    unsigned long delay_target = 0;
+
+    // it's possible that only a single, immediate drive is intended, in which case there will be zero subsequent drives after the initial, immediate one.
+    if (num_delays > 0) {
+      delay_target = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
+    }
+    
     // impose maximum drive rate (minimum delay)
-    unsigned long target = (unsigned long)(us_to_drive / float(num_delays));
-    if (target < MIN_US_PER_DRIVE) {
-      target = MIN_US_PER_DRIVE;
+    if (delay_target < MIN_US_PER_DRIVE) {
+      delay_target = MIN_US_PER_DRIVE;
     }
 
-    return target;
+    return delay_target;
 }
 
 /**
  * Start a stepper.
  *
  * @param stepper_to_start Stepper to start.
- * @param num_drives Number of drives.
+ * @param num_drives Number of drives (signed per direction).
  * @param us_to_drive Total us to drive.
  * @param drive_immediately Whether to drive immediately.
  * @param curr_time_us Current time in us.
@@ -338,13 +335,16 @@ void start_stepper(
   unsigned long curr_time_us
 ) {
 
+  // if the step does not involve any drives, then reset state.
   if (num_drives == 0) {
     stepper_to_start->drive_increment = 0;
+    stepper_to_start->limit_skipped_drives = 0;
     stepper_to_start->us_per_drive = 0;
     stepper_to_start->us_per_drive_target = 0;
-    stepper_to_start->limit_skipped_drives = 0;
     write_stepper_done(stepper_to_start, curr_step_idx);
   }
+
+  // otherwise, configure the stepper to run.
   else {
 
     // enable the stepper driver, since we're about to use the stepper.
@@ -359,15 +359,17 @@ void start_stepper(
     int previous_drive_increment = stepper_to_start->drive_increment;
     stepper_to_start->drive_increment = num_drives > 0 ? 1 : -1;
     bool changing_direction = stepper_to_start->drive_increment != previous_drive_increment;
+
+    // set the direction
     if (stepper_to_start->driver_dir_pin >= 0) {
       digitalWrite(stepper_to_start->driver_dir_pin, stepper_to_start->drive_increment < 0 ? LOW : HIGH);
     }
     stepper_to_start->limit_skipped_drives = 0;
     stepper_to_start->us_remaining = us_to_drive;
-    stepper_to_start->us_per_drive_target = get_drive_rate_target(abs(num_drives), drive_immediately, stepper_to_start->us_remaining);
+    stepper_to_start->us_per_drive_target = get_drive_delay_target(stepper_to_start, drive_immediately);
 
     /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate
-     * (per limit) or decelerate (instantaneously) from this speed upon the next loop.
+     * (per limit) or decelerate (instantaneously) from this speed upon the next acceleration.
     */
     if (changing_direction) {
       stepper_to_start->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
@@ -400,34 +402,40 @@ void accelerate_stepper(
   unsigned long curr_time_us
 ) {
 
-  // accelerate stepper to target speed limited by maximum acceleration
-  if (stepper_to_acc->us_per_drive > stepper_to_acc->us_per_drive_target) {
-    unsigned long accelerate_us_per_drive = stepper_to_acc->us_per_drive - stepper_to_acc->us_per_drive_target;
-    unsigned long us_since_acceleration = curr_time_us - stepper_to_acc->previous_acceleration_us;
-    unsigned long permissible_acceleration_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
-    if (accelerate_us_per_drive > permissible_acceleration_us) {
-      accelerate_us_per_drive = permissible_acceleration_us;
-    }
-    if (accelerate_us_per_drive > 0) {
+  unsigned long reduce_delay_us = stepper_to_acc->us_per_drive - stepper_to_acc->us_per_drive_target;
 
-      stepper_to_acc->us_per_drive -= accelerate_us_per_drive;
+  // accelerate stepper delay to target delay limited by maximum acceleration
+  if (reduce_delay_us > 0) {
+
+    // limit reduction by passed time and max acceleration
+    unsigned long us_since_acceleration = curr_time_us - stepper_to_acc->previous_acceleration_us;
+    unsigned long max_reduction_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
+    if (reduce_delay_us > max_reduction_us) {
+      reduce_delay_us = max_reduction_us;
+    }
+
+    // insufficient time may have passed
+    if (reduce_delay_us > 0) {
+
+      stepper_to_acc->us_per_drive -= reduce_delay_us;
       stepper_to_acc->previous_acceleration_us = curr_time_us;
 
-      // if we've achieved the target rate, then recalculate the target to make up for time lost to acceleration.
+      // if we've achieved the target delay, then recalculate the target delay to make up for time lost 
+      // due to the acceleration interval, when the stepper was not operating at the ideal delay.
       if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
-        stepper_to_acc->us_per_drive_target = get_drive_rate_target(abs(stepper_to_acc->drives_remaining), false, stepper_to_acc->us_remaining);
+        stepper_to_acc->us_per_drive_target = get_drive_delay_target(stepper_to_acc, false);
       }
     }
   }
-  // if the stepper is at the target drive rate, mark the current time as the one from which to perform subsequent accelerations.
-  else if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
+  // if the stepper is at the target delay, mark the current time as the one from which to perform subsequent accelerations.
+  else if (reduce_delay_us == 0) {
     stepper_to_acc->previous_acceleration_us = curr_time_us;
   }
   // allow instantaneous deceleration to the target
   else {
     stepper_to_acc->us_per_drive = stepper_to_acc->us_per_drive_target;
+    stepper_to_acc->previous_acceleration_us = curr_time_us;
   }
-
 }
 
 /**
@@ -459,7 +467,7 @@ bool drive_stepper(
     }
     else {
       byte drive_sequence_idx = mod(stepper_to_drive->drive_idx, DRIVE_SEQUENCE_LEN);
-      for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
+      for (byte pin_idx = 0; pin_idx < stepper_to_drive->driver_num_in_pins; ++pin_idx) {
         digitalWrite(stepper_to_drive->driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
       }
       stepper_to_drive->previous_drive_us = curr_time_us;
@@ -471,11 +479,10 @@ bool drive_stepper(
   }
   
   return completed;
-  
 }
 
 /**
- * Disable a stepper, which cuts current and lets it cool.
+ * Disable a stepper, which cuts current and lets its coils cool.
  *
  * @param stepper_to_disable Stepper to disable.
 */
@@ -513,7 +520,7 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx) {
  * @param stepper_to_stop Stepper to stop.
 */
 void stop_stepper(stepper* stepper_to_stop) {
-  for (byte pin_idx = 0; pin_idx < STEPPER_DRIVER_NUM_IN_PINS; ++pin_idx) {
+  for (byte pin_idx = 0; pin_idx < stepper_to_stop->driver_num_in_pins; ++pin_idx) {
     digitalWrite(stepper_to_stop->driver_pins[pin_idx], LOW);
   }
   write_bool(true);
@@ -535,9 +542,9 @@ void setup() {
   // SerialUSB.begin(9600);
   SerialUART.begin(115200, SERIAL_8N1);
 
-  // configure microstepping, which is 1,0,0 (half steps)
-  pinMode(MICROSTEP_MS1_OUTPUT_PIN, OUTPUT);
-  digitalWrite(MICROSTEP_MS1_OUTPUT_PIN, HIGH);
+  // configure microstepping on the a4988 driver, which is 1,0,0 (half steps)
+  pinMode(A4988_MS1_OUTPUT_PIN, OUTPUT);
+  digitalWrite(A4988_MS1_OUTPUT_PIN, HIGH);
 }
 
 void loop() {
@@ -634,8 +641,9 @@ void loop() {
     );
 
     accelerate_stepper(&left_stepper, curr_time_us);
-    accelerate_stepper(&right_stepper, curr_time_us);
     completed_left_stepper_this_loop = drive_stepper(&left_stepper, limited_travel, curr_time_us);
+
+    accelerate_stepper(&right_stepper, curr_time_us);
     completed_right_stepper_this_loop = drive_stepper(&right_stepper, limited_travel, curr_time_us);
   }
 
@@ -650,10 +658,10 @@ void loop() {
     // initialize a component
     if (command == CMD_INIT) {
       if (component_id == left_stepper.identifier) {        
-        init_stepper(&left_stepper, curr_time_us);
+        init_stepper(&left_stepper);
       }
       else if (component_id == right_stepper.identifier) {
-        init_stepper(&right_stepper, curr_time_us);
+        init_stepper(&right_stepper);
       }
       else if (component_id == LIMIT_SWITCHES_ID) {
         byte args[CMD_INIT_LIMIT_SWITCHES_ARGS_LEN];
@@ -685,14 +693,13 @@ void loop() {
       unsigned long right_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 12)) * 1000;
       unsigned int right_stepper_step_idx = bytes_to_unsigned_int(args, 14);
 
-      // indices must be the same; otherwise, we're out of sync with the caller.
-      if (left_stepper_step_idx == right_stepper_step_idx) {
+      // indices must be the same; otherwise, we're out of sync with the caller. us to drive must also be the same, since the steppers always move in tandem.
+      if (left_stepper_step_idx == right_stepper_step_idx && left_stepper_us_to_drive == right_stepper_us_to_drive) {
         add_step(
           left_stepper_num_drives, 
-          left_stepper_us_to_drive,
           right_stepper_num_drives, 
-          right_stepper_us_to_drive,
-          left_stepper_step_idx
+          left_stepper_us_to_drive,  // same as right
+          left_stepper_step_idx // same as right
         );
       }
 
@@ -707,7 +714,7 @@ void loop() {
     }
   }
 
-  // if both steppers are at their targets, then attempt to start the next step.
+  // if both steppers are initialized and are at their targets, then attempt to start the next step.
   if (left_stepper.is_inited && left_stepper.drives_remaining == 0 && right_stepper.is_inited && right_stepper.drives_remaining == 0) {
 
     step* next_step = get_next_step();
@@ -721,11 +728,13 @@ void loop() {
       */
       left_stepper.us_per_drive = 0;
       left_stepper.us_per_drive_target = 0;
+      disable_stepper(&left_stepper);
+
       right_stepper.us_per_drive = 0;
       right_stepper.us_per_drive_target = 0;
-
-      disable_stepper(&left_stepper);
       disable_stepper(&right_stepper);
+
+      curr_step_idx = 0;
     }
 
     /* if the stepper just completed, then we'll set the drive values but wait the given drive delay to ensure proper 
@@ -734,8 +743,8 @@ void loop() {
     */
     else {
       curr_step_idx = next_step->idx;
-      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->left_stepper_us_to_drive, !completed_left_stepper_this_loop, curr_time_us);
-      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->right_stepper_us_to_drive, !completed_right_stepper_this_loop, curr_time_us);
+      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, !completed_left_stepper_this_loop, curr_time_us);
+      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, !completed_right_stepper_this_loop, curr_time_us);
       delete next_step;
     }
   }

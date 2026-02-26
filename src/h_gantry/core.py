@@ -210,7 +210,7 @@ class HGantry(Component):
             self.y = 0.0
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
-            self.move_idx = 0
+            self.move_idx = 1  # the arduino driver uses 0 as a special "not driving" value
 
         # synchronize driver indices with gantry move index
         self.left_driver.idx = self.move_idx
