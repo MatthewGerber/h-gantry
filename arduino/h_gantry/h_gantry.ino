@@ -2,10 +2,18 @@
 // define a nicer variable to refer to serial tx/rx.
 #define SerialUART _UART1_
 
+bool DEBUG = false;
+
 const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
+const size_t STEPPER_DONE_RESPONSE_LEN = 7;
+const byte NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
+
+const size_t DONE_RESPONSE_BUFFER_LEN = NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
+byte STEPPER_DONE_RESPONSE_BUFFER[DONE_RESPONSE_BUFFER_LEN];
+byte NUM_DONE_BUFFERED = 0;
 
 // structure that gives simultaneous access to floating-point numbers and their underlying bytes
 typedef union {
@@ -292,30 +300,31 @@ void init_stepper(stepper* stepper_to_init) {
  * Get the drive-delay target that achieves a number of drives in a given time interval.
  *
  * @param stepper_to_delay Stepper for which to get delay.
- * @param first_drive_immediate Whether the first drive should be immediate (no delay) or included in the delay schedule.
- * @return The drive-delay target.
+ * @return The drive-delay target (us).
 */
-unsigned long get_drive_delay_target(stepper* stepper_to_delay, bool first_drive_immediate) {
+unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
 
-    // if the first drive is immediate, then we have one fewer delays than drives.
-    unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
-    if (first_drive_immediate) {
-      num_delays -= 1;
+    if (DEBUG) {
+      SerialUSB.println("Getting drive delay for stepper " + String(stepper_to_delay->identifier) + ":  " + String(stepper_to_delay->drives_remaining) + " drives in " + String(stepper_to_delay->us_remaining) + " us.");
     }
+    
+    unsigned long delay_target_us = 0;
 
-    unsigned long delay_target = 0;
-
-    // it's possible that only a single, immediate drive is intended, in which case there will be zero subsequent drives after the initial, immediate one.
+    unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
     if (num_delays > 0) {
-      delay_target = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
+      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
     }
     
     // impose maximum drive rate (minimum delay)
-    if (delay_target < MIN_US_PER_DRIVE) {
-      delay_target = MIN_US_PER_DRIVE;
+    if (delay_target_us < MIN_US_PER_DRIVE) {
+      delay_target_us = MIN_US_PER_DRIVE;
     }
 
-    return delay_target;
+    if (DEBUG) {
+      SerialUSB.println("Target drive delay:  " + String(delay_target_us) + " us.");
+    }
+
+    return delay_target_us;
 }
 
 /**
@@ -324,16 +333,18 @@ unsigned long get_drive_delay_target(stepper* stepper_to_delay, bool first_drive
  * @param stepper_to_start Stepper to start.
  * @param num_drives Number of drives (signed per direction).
  * @param us_to_drive Total us to drive.
- * @param drive_immediately Whether to drive immediately.
  * @param curr_time_us Current time in us.
 */
 void start_stepper(
   stepper* stepper_to_start,
   long num_drives,
   unsigned long us_to_drive,
-  bool drive_immediately,
   unsigned long curr_time_us
 ) {
+
+  if (DEBUG) {
+    SerialUSB.println("Starting stepper " + String(stepper_to_start->identifier) + " with " + String(num_drives) + " drives.");
+  }
 
   // if the step does not involve any drives, then reset state.
   if (num_drives == 0) {
@@ -366,7 +377,7 @@ void start_stepper(
     }
     stepper_to_start->limit_skipped_drives = 0;
     stepper_to_start->us_remaining = us_to_drive;
-    stepper_to_start->us_per_drive_target = get_drive_delay_target(stepper_to_start, drive_immediately);
+    stepper_to_start->us_per_drive_target = get_drive_delay_target(stepper_to_start);
 
     /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate
      * (per limit) or decelerate (instantaneously) from this speed upon the next acceleration.
@@ -374,20 +385,20 @@ void start_stepper(
     if (changing_direction) {
       stepper_to_start->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
     }
-    /* otherwise, maintain the current empirical drive rate and accelerate/decelerate from this rate. we might be starting
-     * from a dead stop rather than continuing from a previous step, in which case the empirical rate might be slower than
-     * the dead-stop acceleration. limit the drive rate to the minimum of the two.
+    /* otherwise, maintain the current drive rate and accelerate/decelerate from this rate. we might be starting
+     * from a dead stop or a very low rate, so use the min between this value and the minimum delay from a dead
+     * stop. we'll accelerate/decelerate from this value.
     */
     else {
-      stepper_to_start->us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, curr_time_us - stepper_to_start->previous_drive_us);
+      stepper_to_start->us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, stepper_to_start->us_per_drive);
     }
 
-    if (drive_immediately) {
-      stepper_to_start->previous_drive_us = curr_time_us - stepper_to_start->us_per_drive;
-    }
-
+    stepper_to_start->previous_drive_us = curr_time_us;
     stepper_to_start->previous_acceleration_us = curr_time_us;
 
+    if (DEBUG) {
+      SerialUSB.println("Done starting stepper " + String(stepper_to_start->identifier) + " at " + String(stepper_to_start->us_per_drive) + " us/drive.");
+    }
   }
 }
 
@@ -402,10 +413,10 @@ void accelerate_stepper(
   unsigned long curr_time_us
 ) {
 
-  unsigned long reduce_delay_us = stepper_to_acc->us_per_drive - stepper_to_acc->us_per_drive_target;
+  // reduce stepper delay to target delay limited by maximum acceleration
+  if (stepper_to_acc->us_per_drive > stepper_to_acc->us_per_drive_target) {
 
-  // accelerate stepper delay to target delay limited by maximum acceleration
-  if (reduce_delay_us > 0) {
+    unsigned long reduce_delay_us = stepper_to_acc->us_per_drive - stepper_to_acc->us_per_drive_target;
 
     // limit reduction by passed time and max acceleration
     unsigned long us_since_acceleration = curr_time_us - stepper_to_acc->previous_acceleration_us;
@@ -423,12 +434,12 @@ void accelerate_stepper(
       // if we've achieved the target delay, then recalculate the target delay to make up for time lost 
       // due to the acceleration interval, when the stepper was not operating at the ideal delay.
       if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
-        stepper_to_acc->us_per_drive_target = get_drive_delay_target(stepper_to_acc, false);
+        stepper_to_acc->us_per_drive_target = get_drive_delay_target(stepper_to_acc);
       }
     }
   }
   // if the stepper is at the target delay, mark the current time as the one from which to perform subsequent accelerations.
-  else if (reduce_delay_us == 0) {
+  else if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
     stepper_to_acc->previous_acceleration_us = curr_time_us;
   }
   // allow instantaneous deceleration to the target
@@ -446,22 +457,28 @@ void accelerate_stepper(
  * @param curr_time_us Current time in microseconds.
  * @return Whether stepper has completed.
  */
-bool drive_stepper(
+void drive_stepper(
   stepper* stepper_to_drive,
   bool limited_travel,
   unsigned long curr_time_us
 ) {
 
   /* drive the stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
-   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller. report back to 
-   * the caller when the drive index reaches the target.
+   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller.
   */
-  bool completed = false;
   unsigned long us_elapsed_since_previous_drive = curr_time_us - stepper_to_drive->previous_drive_us;
   if (stepper_to_drive->drives_remaining != 0 && us_elapsed_since_previous_drive >= stepper_to_drive->us_per_drive) {
+
     stepper_to_drive->drive_idx += stepper_to_drive->drive_increment;
     stepper_to_drive->drives_remaining -= stepper_to_drive->drive_increment;
-    stepper_to_drive->us_remaining = max(0, stepper_to_drive->us_remaining - us_elapsed_since_previous_drive);
+
+    if (stepper_to_drive->us_remaining > us_elapsed_since_previous_drive) {
+      stepper_to_drive->us_remaining -= us_elapsed_since_previous_drive;
+    }
+    else {
+      stepper_to_drive->us_remaining = 0;
+    }
+
     if (limited_travel) {
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
@@ -470,15 +487,14 @@ bool drive_stepper(
       for (byte pin_idx = 0; pin_idx < stepper_to_drive->driver_num_in_pins; ++pin_idx) {
         digitalWrite(stepper_to_drive->driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
       }
-      stepper_to_drive->previous_drive_us = curr_time_us;
     }
+
+    stepper_to_drive->previous_drive_us = curr_time_us;
+
     if (stepper_to_drive->drives_remaining == 0) {
       write_stepper_done(stepper_to_drive, curr_step_idx);
-      completed = true;
     }
   }
-  
-  return completed;
 }
 
 /**
@@ -502,7 +518,12 @@ void disable_stepper(
  * @param idx Move sequence index.
 */
 void write_stepper_done(stepper* stepper_done, unsigned int idx) {
-    byte response[7];
+
+    if (DEBUG) {
+      SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx));
+    }
+
+    byte response[STEPPER_DONE_RESPONSE_LEN];
     response[0] = stepper_done->identifier;
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = stepper_done->limit_skipped_drives / float(DRIVES_PER_STEP);
@@ -510,8 +531,26 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx) {
     byte two[2];
     unsigned_int_to_bytes(idx, two);
     memcpy(response + 5, two, 2);
-    SerialUART.write(response, 7);
-    SerialUART.flush();
+
+    // buffer
+    size_t cpy_start_idx = NUM_DONE_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
+    memcpy(STEPPER_DONE_RESPONSE_BUFFER + cpy_start_idx, response, STEPPER_DONE_RESPONSE_LEN);
+    NUM_DONE_BUFFERED += 1;
+    check_stepper_done_buffer(false);
+
+}
+
+void check_stepper_done_buffer(bool force_flush) {
+
+  if (NUM_DONE_BUFFERED == 0) {
+    return;
+  }
+
+  if (force_flush || NUM_DONE_BUFFERED >= NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
+      SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_DONE_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
+      SerialUART.flush();
+      NUM_DONE_BUFFERED = 0;
+    }
 }
 
 /**
@@ -520,6 +559,9 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx) {
  * @param stepper_to_stop Stepper to stop.
 */
 void stop_stepper(stepper* stepper_to_stop) {
+
+  disable_stepper(stepper_to_stop);
+
   for (byte pin_idx = 0; pin_idx < stepper_to_stop->driver_num_in_pins; ++pin_idx) {
     digitalWrite(stepper_to_stop->driver_pins[pin_idx], LOW);
   }
@@ -539,7 +581,10 @@ void setup() {
   left_stepper.identifier = 0;
   right_stepper.identifier = 1;
 
-  // SerialUSB.begin(9600);
+  if (DEBUG) {
+    SerialUSB.begin(9600);
+  }
+
   SerialUART.begin(115200, SERIAL_8N1);
 
   // configure microstepping on the a4988 driver, which is 1,0,0 (half steps)
@@ -550,9 +595,6 @@ void setup() {
 void loop() {
 
   unsigned long curr_time_us = micros();
-
-  bool completed_left_stepper_this_loop = false;
-  bool completed_right_stepper_this_loop = false;
 
   // process the current step command if everything is initialized
   if (left_stepper.is_inited && right_stepper.is_inited && limit_switches_inited) {
@@ -641,10 +683,10 @@ void loop() {
     );
 
     accelerate_stepper(&left_stepper, curr_time_us);
-    completed_left_stepper_this_loop = drive_stepper(&left_stepper, limited_travel, curr_time_us);
+    drive_stepper(&left_stepper, limited_travel, curr_time_us);
 
     accelerate_stepper(&right_stepper, curr_time_us);
-    completed_right_stepper_this_loop = drive_stepper(&right_stepper, limited_travel, curr_time_us);
+    drive_stepper(&right_stepper, limited_travel, curr_time_us);
   }
 
   // process a commands sent over the serial connection
@@ -702,7 +744,9 @@ void loop() {
           left_stepper_step_idx // same as right
         );
       }
-
+      else {
+        SerialUSB.println("Invalid step received.");
+      }
     }
     else if (command == CMD_STOP) {
       if (component_id == left_stepper.identifier && left_stepper.is_inited) {
@@ -719,8 +763,14 @@ void loop() {
 
     step* next_step = get_next_step();
 
-    // check whether buffer is empty
-    if (next_step == nullptr) {
+    // if the buffer is empty, then we have nothing further to do at this time.
+    if (next_step == nullptr) {   
+
+      check_stepper_done_buffer(true);   
+
+      if (DEBUG) {
+        SerialUSB.println("Empty buffer");
+      }
 
       /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
        * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
@@ -735,17 +785,26 @@ void loop() {
       disable_stepper(&right_stepper);
 
       curr_step_idx = 0;
-    }
 
-    /* if the stepper just completed, then we'll set the drive values but wait the given drive delay to ensure proper 
-     * stepper timing in relation to the step that just completed. if the stepper did not just complete, then begin 
-     * driving the steppers immediately since we must have just received a new step command to resume stepping.
-    */
+    }
+    // immediately configure the next step
     else {
+
       curr_step_idx = next_step->idx;
-      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, !completed_left_stepper_this_loop, curr_time_us);
-      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, !completed_right_stepper_this_loop, curr_time_us);
+
+      if (DEBUG) {
+        SerialUSB.println("Starting next step:  " + String(curr_step_idx));
+      }
+
+      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, curr_time_us);
+      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, curr_time_us);
+
       delete next_step;
+
+      if (DEBUG) {
+        SerialUSB.println("Done starting step. Deleting step reference.");
+      }
+
     }
   }
 }

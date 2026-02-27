@@ -81,12 +81,13 @@ def main():
 
     # gantry.move_to_offset(10.0, 0.0, 100.0, True, False)
     # gantry.move_to_offset_limit(1.0, 1.0, 10.0)
-    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
-    # gantry.move_to_offset(0.0, -10.0, 10.0, False)
+    # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
+    # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
+    # gantry.clear_move_buffer()
     # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    # gantry.calibrate(100.0)
-    # gantry.center(100.0, True, True)
+    # gantry.calibrate(150.0)
+    # gantry.center(150.0, True, True)
     # gantry.move_to_top_limit(10.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
     # gantry.move_to_points(circle_points, 10.0, True)
@@ -108,10 +109,10 @@ def main():
     #     350,
     #     200,
     #     100,
-    #     0.1,
+    #     0.01,
     #     0.5,
-    #     100.0,
-    #     5.0,
+    #     150.0,
+    #     10.0,
     #     True,
     #     True,
     #     True
