@@ -118,6 +118,17 @@ def main():
     #     True
     # )
 
+    # gantry.draw_spiral(
+    #     300.0,
+    #     7.0,
+    #     5.0,
+    #     150.0,
+    #     False,
+    #     True,
+    #     True,
+    #     5.0
+    # )
+
     gantry.stop(True)
 
     cleanup()

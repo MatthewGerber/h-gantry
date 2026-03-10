@@ -958,13 +958,13 @@ class HGantry(Component):
             theta_step: float,
             scale: float,
             mm_per_sec: float,
-            ignore_moves_shorter_than_mm: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool
+            check_bounds: bool,
+            ignore_moves_shorter_than_mm: float
     ):
         """
-        Draw a spirograph from parameters.
+        Draw a spirograph from parameters centered at the current location.
 
         :param R: Radius of the fixed circle.
         :param r: Radius of the rolling circle.
@@ -972,10 +972,10 @@ class HGantry(Component):
         :param theta_step: Step size (radians).
         :param scale: Scale.
         :param mm_per_sec: Speed.
-        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         """
 
         R = int(R * scale)
@@ -995,10 +995,10 @@ class HGantry(Component):
             g,
             (self.x, self.y),
             mm_per_sec,
-            ignore_moves_shorter_than_mm,
             return_to_current_position,
             block,
-            check_bounds
+            check_bounds,
+            ignore_moves_shorter_than_mm,
         )
 
     def draw_spirograph(
@@ -1006,10 +1006,10 @@ class HGantry(Component):
             g: _Trochoid,
             center: Tuple[float, float],
             mm_per_sec: float,
-            ignore_moves_shorter_than_mm: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool
+            check_bounds: bool,
+            ignore_moves_shorter_than_mm: float
     ) -> _Trochoid:
         """
         Draw a spirograph object.
@@ -1017,10 +1017,10 @@ class HGantry(Component):
         :param g: Spirograph.
         :param center: Location of center.
         :param mm_per_sec: Speed.
-        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :return: Resulting spirograph, which might be scaled and translated.
         """
 
@@ -1055,19 +1055,18 @@ class HGantry(Component):
 
     def draw_spiral(
             self,
-            center: Tuple[float, float],
             outer_diameter_mm: float,
             loop_spacing_mm: float,
             step_degrees: float,
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool
+            check_bounds: bool,
+            ignore_moves_shorter_than_mm: float
     ):
         """
-        Draw a spiral.
+        Draw a spiral centered at the current location.
 
-        :param center: Location of center.
         :param outer_diameter_mm: Outer diameter (mm) of the spiral.
         :param loop_spacing_mm: Loop spacing (mm).
         :param step_degrees: Step degrees.
@@ -1075,30 +1074,30 @@ class HGantry(Component):
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         """
 
         radius = outer_diameter_mm / 2.0
         turn_count = radius / loop_spacing_mm
         turn_radians = turn_count * 2.0 * math.pi
         step_radians = math.radians(step_degrees)
-        spacing_per_radian = loop_spacing_mm / (2.0 * math.pi)
+        loop_spacing_mm_per_radian = loop_spacing_mm / (2.0 * math.pi)
 
-        center_x, center_y = center
-        points = [center]
-        for theta in np.arange(0.0, turn_radians + step_radians, step_radians):
-
-            polar_r = spacing_per_radian * theta
-            cart_x = polar_r * math.cos(theta) + center_x
-            cart_y = polar_r * math.sin(theta) + center_y
-            points.append((cart_x, cart_y))
+        center_x, center_y = self.x, self.y
+        spiral_points = [(center_x, center_y)]
+        for theta_radians in np.arange(0.0, turn_radians + step_radians, step_radians):
+            polar_radius = loop_spacing_mm_per_radian * theta_radians
+            spiral_x = polar_radius * math.cos(theta_radians) + center_x
+            spiral_y = polar_radius * math.sin(theta_radians) + center_y
+            spiral_points.append((spiral_x, spiral_y))
 
         self.move_to_points(
-            points,
+            spiral_points,
             mm_per_sec,
             return_to_current_position,
             block,
             check_bounds,
-            10.0
+            ignore_moves_shorter_than_mm
         )
 
     def enable(
@@ -1182,56 +1181,50 @@ class HGantry(Component):
         :return: List of 2-tuples of (1) element key and (2) element content.
         """
 
-        R_textbox_id, R_textbox_ui_element = RpyFlask.get_textbox(
+        # spirograph
+        spiro_R_textbox_id, spiro_R_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-upper-r',
             'Radius (R; mm) of the fixed circle along which the moving circle rolls',
             '350',
             RpyFlask.TextboxType.NUMBER
         )
 
-        r_textbox_id, r_textbox_ui_element = RpyFlask.get_textbox(
+        spiro_r_textbox_id, spiro_r_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-lower-r',
             'Radius (r; mm) of the rolling circle',
             '200',
             RpyFlask.TextboxType.NUMBER
         )
 
-        d_textbox_id, d_textbox_ui_element = RpyFlask.get_textbox(
+        spiro_d_textbox_id, spiro_d_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-d',
             'Distance (d; mm) of the trace point from the rolling circle',
             '100',
             RpyFlask.TextboxType.NUMBER
         )
 
-        theta_step_textbox_id, theta_step_textbox_ui_element = RpyFlask.get_textbox(
+        spiro_theta_step_textbox_id, spiro_theta_step_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-theta_step',
             'Rolling step size (theta_step; radians)',
             '0.01',
             RpyFlask.TextboxType.NUMBER
         )
 
-        scale_textbox_id, scale_textbox_ui_element = RpyFlask.get_textbox(
+        spiro_scale_textbox_id, spiro_scale_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-scale',
-            'Scaling of the spirograph (greater than 0.0)',
+            'Scaling (greater than 0.0)',
             '0.5',
             RpyFlask.TextboxType.NUMBER
         )
 
-        mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+        spiro_mm_per_sec_textbox_id, spiro_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-mm_per_sec',
-            'Speed (mm/sec) to draw the spirograph',
+            'Speed (mm/sec)',
             '100.0',
             RpyFlask.TextboxType.NUMBER
         )
 
-        ignore_moves_textbox_id, ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
-            'spiro-ignore_moves_shorter_than_mm',
-            'Ignore moves shorter than (mm)',
-            '10.0',
-            RpyFlask.TextboxType.NUMBER
-        )
-
-        return_switch_id, return_switch_ui_element = RpyFlask.get_switch(
+        spiro_return_switch_id, spiro_return_switch_ui_element = RpyFlask.get_switch(
             'spiro-return_to_current_position',
             None,
             None,
@@ -1239,7 +1232,7 @@ class HGantry(Component):
             True
         )
 
-        block_switch_id, block_switch_ui_element = RpyFlask.get_switch(
+        spiro_block_switch_id, spiro_block_switch_ui_element = RpyFlask.get_switch(
             'spiro-block',
             None,
             None,
@@ -1247,7 +1240,7 @@ class HGantry(Component):
             True
         )
 
-        check_bounds_switch_id, check_bounds_switch_ui_element = RpyFlask.get_switch(
+        spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element = RpyFlask.get_switch(
             'spiro-check_bounds',
             None,
             None,
@@ -1255,17 +1248,95 @@ class HGantry(Component):
             True
         )
 
+        spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
+            'spiro-ignore_moves_shorter_than_mm',
+            'Ignore moves shorter than (mm)',
+            '10.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
         spirograph_dyn_args = [
-            ('R', int, f'{R_textbox_id}'),
-            ('r', int, f'{r_textbox_id}'),
-            ('d', int, f'{d_textbox_id}'),
-            ('theta_step', float, f'{theta_step_textbox_id}'),
-            ('scale', float, f'{scale_textbox_id}'),
-            ('mm_per_sec', float, f'{mm_per_sec_textbox_id}'),
-            ('ignore_moves_shorter_than_mm', float, f'{ignore_moves_textbox_id}'),
-            ('return_to_current_position', bool, f'{return_switch_id}'),
-            ('block', bool, f'{block_switch_id}'),
-            ('check_bounds', bool, f'{check_bounds_switch_id}')
+            ('R', int, f'{spiro_R_textbox_id}'),
+            ('r', int, f'{spiro_r_textbox_id}'),
+            ('d', int, f'{spiro_d_textbox_id}'),
+            ('theta_step', float, f'{spiro_theta_step_textbox_id}'),
+            ('scale', float, f'{spiro_scale_textbox_id}'),
+            ('mm_per_sec', float, f'{spiro_mm_per_sec_textbox_id}'),
+            ('return_to_current_position', bool, f'{spiro_return_switch_id}'),
+            ('block', bool, f'{spiro_block_switch_id}'),
+            ('check_bounds', bool, f'{spiro_check_bounds_switch_id}'),
+            ('ignore_moves_shorter_than_mm', float, f'{spiro_ignore_moves_textbox_id}')
+        ]
+
+        # spiral
+        spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'spiral-outer_diameter_mm',
+            'Outer diameter (mm)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'spiral-loop_spacing_mm',
+            'Loop spacing (mm)',
+            '10.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spiral_step_degrees_textbox_id, spiral_step_degrees_textbox_ui_element = RpyFlask.get_textbox(
+            'spiral-step_degrees',
+            'Step size (degrees)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spiral_mm_per_sec_textbox_id, spiral_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'spiral-mm_per_sec',
+            'Speed (mm/sec)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spiral_return_switch_id, spiral_return_switch_ui_element = RpyFlask.get_switch(
+            'spiral-return_to_current_position',
+            None,
+            None,
+            'Return to current position',
+            True
+        )
+
+        spiral_block_switch_id, spiral_block_switch_ui_element = RpyFlask.get_switch(
+            'spiral-block',
+            None,
+            None,
+            'Block until complete',
+            True
+        )
+
+        spiral_check_bounds_switch_id, spiral_check_bounds_switch_ui_element = RpyFlask.get_switch(
+            'spiral-check_bounds',
+            None,
+            None,
+            'Check bounds',
+            True
+        )
+
+        spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
+            'spiral-ignore_moves_shorter_than_mm',
+            'Ignore moves shorter than (mm)',
+            '10.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        spiral_dyn_args = [
+            ('outer_diameter_mm', float, spiral_outer_diameter_mm_textbox_id),
+            ('loop_spacing_mm', float, spiral_loop_spacing_mm_textbox_id),
+            ('step_degrees', float, spiral_step_degrees_textbox_id),
+            ('mm_per_sec', float, f'{spiral_mm_per_sec_textbox_id}'),
+            ('return_to_current_position', bool, f'{spiral_return_switch_id}'),
+            ('block', bool, f'{spiral_block_switch_id}'),
+            ('check_bounds', bool, f'{spiral_check_bounds_switch_id}'),
+            ('ignore_moves_shorter_than_mm', float, f'{spiral_ignore_moves_textbox_id}')
         ]
 
         return [
@@ -1279,16 +1350,25 @@ class HGantry(Component):
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
             RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, spirograph_dyn_args, None, None, None, 'Draw'),
-            (R_textbox_id, R_textbox_ui_element),
-            (r_textbox_id, r_textbox_ui_element),
-            (d_textbox_id, d_textbox_ui_element),
-            (theta_step_textbox_id, theta_step_textbox_ui_element),
-            (scale_textbox_id, scale_textbox_ui_element),
-            (mm_per_sec_textbox_id, mm_per_sec_textbox_ui_element),
-            (ignore_moves_textbox_id, ignore_moves_textbox_ui_element),
-            (return_switch_id, return_switch_ui_element),
-            (block_switch_id, block_switch_ui_element),
-            (check_bounds_switch_id, check_bounds_switch_ui_element),
+            (spiro_R_textbox_id, spiro_R_textbox_ui_element),
+            (spiro_r_textbox_id, spiro_r_textbox_ui_element),
+            (spiro_d_textbox_id, spiro_d_textbox_ui_element),
+            (spiro_theta_step_textbox_id, spiro_theta_step_textbox_ui_element),
+            (spiro_scale_textbox_id, spiro_scale_textbox_ui_element),
+            (spiro_mm_per_sec_textbox_id, spiro_mm_per_sec_textbox_ui_element),
+            (spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element),
+            (spiro_return_switch_id, spiro_return_switch_ui_element),
+            (spiro_block_switch_id, spiro_block_switch_ui_element),
+            (spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element),
+            RpyFlask.get_button(self.id, self.draw_spiral, None, spiral_dyn_args, None, None, None, 'Draw'),
+            (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
+            (spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element),
+            (spiral_step_degrees_textbox_id, spiral_step_degrees_textbox_ui_element),
+            (spiral_mm_per_sec_textbox_id, spiral_mm_per_sec_textbox_ui_element),
+            (spiral_return_switch_id, spiral_return_switch_ui_element),
+            (spiral_block_switch_id, spiral_block_switch_ui_element),
+            (spiral_check_bounds_switch_id, spiral_check_bounds_switch_ui_element),
+            (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
         ]
 
