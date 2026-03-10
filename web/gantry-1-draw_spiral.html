@@ -1,0 +1,31 @@
+<button type="button" class="btn btn-primary" id="gantry-1-draw_spiral">Draw</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_draw_spiral = $("#gantry-1-draw_spiral");
+function on_press_draw_spiral () {
+  let dyn_args_query = "";
+  let dyn_arg_value = document.getElementById("spiral-outer_diameter_mm").value;
+  dyn_args_query = dyn_args_query + "outer_diameter_mm=float:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("spiral-loop_spacing_mm").value;
+  dyn_args_query = dyn_args_query + "&loop_spacing_mm=float:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("spiral-step_degrees").value;
+  dyn_args_query = dyn_args_query + "&step_degrees=float:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("spiral-mm_per_sec").value;
+  dyn_args_query = dyn_args_query + "&mm_per_sec=float:" + dyn_arg_value;
+  dyn_arg_value = $("#spiral-return_to_current_position").is(":checked");
+  dyn_args_query = dyn_args_query + "&return_to_current_position=bool:" + dyn_arg_value;
+  dyn_arg_value = $("#spiral-block").is(":checked");
+  dyn_args_query = dyn_args_query + "&block=bool:" + dyn_arg_value;
+  dyn_arg_value = $("#spiral-check_bounds").is(":checked");
+  dyn_args_query = dyn_args_query + "&check_bounds=bool:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("spiral-ignore_moves_shorter_than_mm").value;
+  dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spiral?" + dyn_args_query,
+    type: "GET"
+  });
+}
+gantry_1_draw_spiral.on("mousedown touchstart", function () {
+  on_press_draw_spiral();
+});
+</script>

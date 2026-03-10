@@ -16,14 +16,14 @@ function on_press_draw_spirograph_from_params () {
   dyn_args_query = dyn_args_query + "&scale=float:" + dyn_arg_value;
   dyn_arg_value = document.getElementById("spiro-mm_per_sec").value;
   dyn_args_query = dyn_args_query + "&mm_per_sec=float:" + dyn_arg_value;
-  dyn_arg_value = document.getElementById("spiro-ignore_moves_shorter_than_mm").value;
-  dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
   dyn_arg_value = $("#spiro-return_to_current_position").is(":checked");
   dyn_args_query = dyn_args_query + "&return_to_current_position=bool:" + dyn_arg_value;
   dyn_arg_value = $("#spiro-block").is(":checked");
   dyn_args_query = dyn_args_query + "&block=bool:" + dyn_arg_value;
   dyn_arg_value = $("#spiro-check_bounds").is(":checked");
   dyn_args_query = dyn_args_query + "&check_bounds=bool:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("spiro-ignore_moves_shorter_than_mm").value;
+  dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
   $.ajax({
     url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spirograph_from_params?" + dyn_args_query,
     type: "GET"
