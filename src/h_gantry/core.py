@@ -941,12 +941,8 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         """
 
-        # pump moves into the buffer until we get one back that indicates a limit switch was hit
-        move_distance_mm = math.sqrt(x_offset_mm ** 2 + y_offset_mm ** 2)
-        move_time_seconds = move_distance_mm / mm_per_sec
-        sleep_time_seconds = move_time_seconds / 2.0
         while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False) != False:
-            sleep(sleep_time_seconds)
+            pass
         else:
             self.clear_move_buffer()
 
