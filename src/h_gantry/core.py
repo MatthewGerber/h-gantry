@@ -1282,7 +1282,7 @@ class HGantry(Component):
         spiral_step_degrees_textbox_id, spiral_step_degrees_textbox_ui_element = RpyFlask.get_textbox(
             'spiral-step_degrees',
             'Step size (degrees)',
-            '100.0',
+            '5.0',
             RpyFlask.TextboxType.NUMBER
         )
 
@@ -1320,7 +1320,7 @@ class HGantry(Component):
         spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
             'spiral-ignore_moves_shorter_than_mm',
             'Ignore moves shorter than (mm)',
-            '10.0',
+            '5.0',
             RpyFlask.TextboxType.NUMBER
         )
 
