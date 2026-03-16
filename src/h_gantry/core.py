@@ -8,7 +8,7 @@ from collections import deque
 from datetime import timedelta
 from enum import IntEnum
 from threading import RLock
-from time import time, sleep
+from time import time
 from typing import Tuple, List, Optional, Union
 
 import numpy as np
@@ -1251,7 +1251,7 @@ class HGantry(Component):
             RpyFlask.TextboxType.NUMBER
         )
 
-        spirograph_dyn_args = [
+        draw_spirograph_dyn_args = [
             ('R', int, f'{spiro_R_textbox_id}'),
             ('r', int, f'{spiro_r_textbox_id}'),
             ('d', int, f'{spiro_d_textbox_id}'),
@@ -1324,7 +1324,7 @@ class HGantry(Component):
             RpyFlask.TextboxType.NUMBER
         )
 
-        spiral_dyn_args = [
+        draw_spiral_dyn_args = [
             ('outer_diameter_mm', float, spiral_outer_diameter_mm_textbox_id),
             ('loop_spacing_mm', float, spiral_loop_spacing_mm_textbox_id),
             ('step_degrees', float, spiral_step_degrees_textbox_id),
@@ -1345,7 +1345,7 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, spirograph_dyn_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, draw_spirograph_dyn_args, None, None, None, 'Draw'),
             (spiro_R_textbox_id, spiro_R_textbox_ui_element),
             (spiro_r_textbox_id, spiro_r_textbox_ui_element),
             (spiro_d_textbox_id, spiro_d_textbox_ui_element),
@@ -1356,7 +1356,7 @@ class HGantry(Component):
             (spiro_return_switch_id, spiro_return_switch_ui_element),
             (spiro_block_switch_id, spiro_block_switch_ui_element),
             (spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element),
-            RpyFlask.get_button(self.id, self.draw_spiral, None, spiral_dyn_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spiral, None, draw_spiral_dyn_args, None, None, None, 'Draw'),
             (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
             (spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element),
             (spiral_step_degrees_textbox_id, spiral_step_degrees_textbox_ui_element),
