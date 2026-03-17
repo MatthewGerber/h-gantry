@@ -1335,17 +1335,19 @@ class HGantry(Component):
             ('ignore_moves_shorter_than_mm', float, f'{spiral_ignore_moves_textbox_id}')
         ]
 
+        add_to_history = {'add_to_history': True}
+
         return [
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {'mm_per_sec': 100.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
+            RpyFlask.get_button(self.id, self.center, {**add_to_history, 'mm_per_sec': 100.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
-            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, None, draw_spirograph_dyn_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spirograph_from_params, add_to_history, draw_spirograph_dyn_args, None, None, None, 'Draw'),
             (spiro_R_textbox_id, spiro_R_textbox_ui_element),
             (spiro_r_textbox_id, spiro_r_textbox_ui_element),
             (spiro_d_textbox_id, spiro_d_textbox_ui_element),
@@ -1356,7 +1358,7 @@ class HGantry(Component):
             (spiro_return_switch_id, spiro_return_switch_ui_element),
             (spiro_block_switch_id, spiro_block_switch_ui_element),
             (spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element),
-            RpyFlask.get_button(self.id, self.draw_spiral, None, draw_spiral_dyn_args, None, None, None, 'Draw'),
+            RpyFlask.get_button(self.id, self.draw_spiral, add_to_history, draw_spiral_dyn_args, None, None, None, 'Draw'),
             (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
             (spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element),
             (spiral_step_degrees_textbox_id, spiral_step_degrees_textbox_ui_element),

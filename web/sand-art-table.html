@@ -25,7 +25,7 @@
         <div class="accordion-item">
             <h2 class="accordion-header" id="main">
                 <button class="accordion-button" type="button" data-mdb-toggle="collapse"
-                        data-mdb-target="#collapse-main" aria-expanded="false" aria-controls="collapse-main"
+                        data-mdb-target="#collapse-main" aria-expanded="true" aria-controls="collapse-main"
                         style="background-color: aliceblue;">
                     Main
                 </button>
@@ -69,14 +69,33 @@
         </div>
 
         <div class="accordion-item">
+            <h2 class="accordion-header" id="history">
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-history" aria-expanded="false" aria-controls="collapse-history"
+                        style="background-color: aliceblue;">
+                    History
+                </button>
+            </h2>
+            <div id="collapse-history" class="accordion-collapse collapse" aria-labelledby="history">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md" style="display: flex; justify-content: center; align-items: center">
+                            <div id="div-app-call-history-list_calls"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
             <h2 class="accordion-header" id="spiro">
-                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
                         data-mdb-target="#collapse-spiro" aria-expanded="false" aria-controls="collapse-spiro"
                         style="background-color: aliceblue;">
                     Spirograph
                 </button>
             </h2>
-            <div id="collapse-spiro" class="accordion-collapse collapse hide" aria-labelledby="spiro">
+            <div id="collapse-spiro" class="accordion-collapse collapse" aria-labelledby="spiro">
                 <div class="accordion-body" style="background-color: #fafafa;">
                     <div class="row">
                         <div class="col-md">
@@ -99,13 +118,13 @@
 
         <div class="accordion-item">
             <h2 class="accordion-header" id="spiral">
-                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
                         data-mdb-target="#collapse-spiral" aria-expanded="false" aria-controls="collapse-spiral"
                         style="background-color: aliceblue;">
                     Spiral
                 </button>
             </h2>
-            <div id="collapse-spiral" class="accordion-collapse collapse hide" aria-labelledby="spiral">
+            <div id="collapse-spiral" class="accordion-collapse collapse" aria-labelledby="spiral">
                 <div class="accordion-body" style="background-color: #fafafa;">
                     <div class="row">
                         <div class="col-md">
@@ -126,13 +145,13 @@
 
         <div class="accordion-item">
             <h2 class="accordion-header" id="setup">
-                <button class="accordion-button" type="button" data-mdb-toggle="collapse"
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
                         data-mdb-target="#collapse-setup" aria-expanded="false" aria-controls="collapse-setup"
                         style="background-color: aliceblue;">
                     Setup
                 </button>
             </h2>
-            <div id="collapse-setup" class="accordion-collapse collapse hide" aria-labelledby="setup">
+            <div id="collapse-setup" class="accordion-collapse collapse" aria-labelledby="setup">
                 <div class="accordion-body" style="background-color: #fafafa;">
                     <div class="row">
                         <div class="col-md rpy-margin">
@@ -157,6 +176,7 @@
 <script>$("#div-gantry-1-center").load("gantry-1-center.html");</script>
 <script>$("#div-gantry-1-clear_move_buffer").load("gantry-1-clear_move_buffer.html");</script>
 <script>$("#div-gantry-1-clear_point_history").load("gantry-1-clear_point_history.html");</script>
+<script>$("#div-app-call-history-list_calls").load("app-call-history-list_calls.html");</script>
 
 <script>$("#div-spiro-upper-r").load("spiro-upper-r.html");</script>
 <script>$("#div-spiro-lower-r").load("spiro-lower-r.html");</script>
