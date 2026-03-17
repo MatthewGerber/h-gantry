@@ -3,7 +3,7 @@
 import {rest_host, rest_port} from "./globals.js";
 const gantry_1_draw_spiral = $("#gantry-1-draw_spiral");
 function on_press_draw_spiral () {
-  let dyn_args_query = "";
+  let dyn_args_query = "&";
   let dyn_arg_value = document.getElementById("spiral-outer_diameter_mm").value;
   dyn_args_query = dyn_args_query + "outer_diameter_mm=float:" + dyn_arg_value;
   dyn_arg_value = document.getElementById("spiral-loop_spacing_mm").value;
@@ -21,7 +21,7 @@ function on_press_draw_spiral () {
   dyn_arg_value = document.getElementById("spiral-ignore_moves_shorter_than_mm").value;
   dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spiral?" + dyn_args_query,
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spiral?add_to_history=bool:True" + dyn_args_query,
     type: "GET"
   });
 }

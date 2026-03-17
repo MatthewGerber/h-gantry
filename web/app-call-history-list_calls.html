@@ -10,10 +10,11 @@ async function refresh_items_app_call_history_list_calls() {
     url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/list_calls",
     type: "GET",
     success: async function (return_value) {
+      app_call_history_list_calls = "";
       return_value.forEach(item => {
         const li = document.createElement("li");
         li.innerHTML = `          <li class="list-group-item d-flex justify-content-between align-items-center">            <div class="d-flex align-items-center">              <img src="https://mdbootstrap.com/img/new/avatars/8.jpg" alt="" style="width: 45px; height: 45px" class="rounded-circle" />              <div class="ms-3">                <p class="fw-bold mb-1">{item.title}</p>                <p class="text-muted mb-0">{item.description}</p>              </div>            </div>            <a class="btn btn-link btn-rounded btn-sm" href="#" role="button">Run</a>          </li>`;
-        dataList.appendChild(li);
+        app_call_history_list_calls.appendChild(li);
       });
       await new Promise(r => setTimeout(r, 1000.0));
       await refresh_items_app_call_history_list_calls();

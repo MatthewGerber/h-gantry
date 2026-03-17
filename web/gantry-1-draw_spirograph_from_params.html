@@ -3,7 +3,7 @@
 import {rest_host, rest_port} from "./globals.js";
 const gantry_1_draw_spirograph_from_params = $("#gantry-1-draw_spirograph_from_params");
 function on_press_draw_spirograph_from_params () {
-  let dyn_args_query = "";
+  let dyn_args_query = "&";
   let dyn_arg_value = document.getElementById("spiro-upper-r").value;
   dyn_args_query = dyn_args_query + "R=int:" + dyn_arg_value;
   dyn_arg_value = document.getElementById("spiro-lower-r").value;
@@ -25,7 +25,7 @@ function on_press_draw_spirograph_from_params () {
   dyn_arg_value = document.getElementById("spiro-ignore_moves_shorter_than_mm").value;
   dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spirograph_from_params?" + dyn_args_query,
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_spirograph_from_params?add_to_history=bool:True" + dyn_args_query,
     type: "GET"
   });
 }
