@@ -1,4 +1,3 @@
-import base64
 import io
 import json
 import logging
@@ -23,7 +22,8 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
-from raspberry_py.rest.application import RpyFlask
+from raspberry_py.rest.application import RpyFlask, CallImageBytes
+from raspberry_py.utils import get_base_64_str
 
 
 class Move:
@@ -958,7 +958,7 @@ class HGantry(Component):
             block: bool,
             check_bounds: bool,
             ignore_moves_shorter_than_mm: float
-    ):
+    ) -> Optional[CallImageBytes]:
         """
         Draw a spirograph from parameters centered at the current location.
 
@@ -972,6 +972,8 @@ class HGantry(Component):
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
         """
 
         R = int(R * scale)
@@ -996,6 +998,15 @@ class HGantry(Component):
             check_bounds,
             ignore_moves_shorter_than_mm,
         )
+
+        # we can only return an image of the drawing if we blocked and waited for it to complete
+        if block:
+            call_image_bytes = self.get_line_plot()
+        else:
+            call_image_bytes = None
+
+        return call_image_bytes
+
 
     def draw_spirograph(
             self,
@@ -1164,9 +1175,8 @@ class HGantry(Component):
         plt.savefig(buffer, format='jpeg', bbox_inches='tight')
         plt.close()
         buffer.seek(0)
-        base64_str = str(base64.b64encode(buffer.getvalue()))[2:-1]
 
-        return base64_str
+        return get_base_64_str(buffer.getvalue())
 
     def get_ui_elements(
             self
