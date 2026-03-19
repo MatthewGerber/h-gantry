@@ -6,7 +6,7 @@ authors = ["MatthewGerber <gerber.matthew@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "~3.11"
+python = "^3.11"
 raspberry-py = {path = "submodules/raspberry-py", develop = true}
 spyrograph = "^0.29.0"
 matplotlib = "^3.10.6"
