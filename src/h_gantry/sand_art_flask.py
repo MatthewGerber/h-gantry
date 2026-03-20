@@ -69,7 +69,7 @@ gantry = HGantry(
 )
 gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
 gantry.id = 'gantry-1'
-# gantry.start()
+gantry.start()
 
 app.add_component(gantry)
 
@@ -78,6 +78,6 @@ def on_exit():
     Clean up, save state, etc.
     """
 
-    # gantry.stop(True)
+    gantry.stop(True)
 
 app.register_on_exit_callback(on_exit)
