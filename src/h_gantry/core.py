@@ -996,17 +996,16 @@ class HGantry(Component):
             return_to_current_position,
             block,
             check_bounds,
-            ignore_moves_shorter_than_mm,
+            ignore_moves_shorter_than_mm
         )
 
         # we can only return an image of the drawing if we blocked and waited for it to complete
         if block:
-            call_image_bytes = self.get_line_plot()
+            call_image_bytes = CallImageBytes(self.get_line_plot())
         else:
             call_image_bytes = None
 
         return call_image_bytes
-
 
     def draw_spirograph(
             self,
@@ -1135,7 +1134,6 @@ class HGantry(Component):
         :return: Base-64 encoded image of line plot.
         """
 
-        plotted = False
         with self.move_lock:
             plt.plot(
                 *zip(*self.completed_move_points),
@@ -1159,24 +1157,23 @@ class HGantry(Component):
                 label='Future'
             )
             plotted = len(self.completed_move_points) + len(pending_moves) > 0
+            plt.gcf().set_size_inches(8.0, 8.0)
+            plt.gca().set_aspect('equal')
+            plt.grid()
+            if plotted:
+                plt.legend()
+            plt.xlim(0.0, self.left_right_mm)
+            plt.ylim(0.0, self.bottom_top_mm)
+            plt.xlabel('mm')
+            plt.ylabel('mm')
+            plt.tight_layout()
 
-        plt.gcf().set_size_inches(8.0, 8.0)
-        plt.gca().set_aspect('equal')
-        plt.grid()
-        if plotted:
-            plt.legend()
-        plt.xlim(0.0, self.left_right_mm)
-        plt.ylim(0.0, self.bottom_top_mm)
-        plt.xlabel('mm')
-        plt.ylabel('mm')
-        plt.tight_layout()
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='jpeg', bbox_inches='tight')
+            plt.close()
+            buffer.seek(0)
 
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='jpeg', bbox_inches='tight')
-        plt.close()
-        buffer.seek(0)
-
-        return get_base_64_str(buffer.getvalue())
+            return get_base_64_str(buffer.getvalue())
 
     def get_ui_elements(
             self
