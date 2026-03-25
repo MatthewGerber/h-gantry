@@ -10,11 +10,22 @@ async function refresh_items_app_call_history_list_calls() {
     url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/list_calls",
     type: "GET",
     success: async function (return_value) {
+      let item_idx = 0;
       app_call_history_list_calls.innerHTML = "";
       return_value.forEach(item => {
         const li = document.createElement("li");
-        li.innerHTML = `          <li class="list-group-item d-flex justify-content-between align-items-center">            <div class="d-flex align-items-center">              <img src="data:image/jpg;base64,${item.image}" alt="" style="width: 200px; height: 200px"/>              <div class="ms-3">                <p class="fw-bold mb-1">${item.title}</p>                <p class="text-muted mb-0">${item.description}</p>              </div>            </div>            <a class="btn btn-link btn-rounded btn-sm" href="#" role="button">Run</a>          </li>`;
+        let li_button_id = "app_call_history_list_calls_" + item_idx;
+        li.innerHTML = `          <li class="list-group-item d-flex justify-content-between align-items-center">            <div class="d-flex align-items-center">              <img src="data:image/jpg;base64,${item.image}" alt="" style="width: 200px; height: 200px"/>              <div class="ms-3">                <p class="fw-bold mb-1">${item.title}</p>                <p class="text-muted mb-0">${item.description}</p>              </div>            </div>            <a class="btn btn-link btn-rounded btn-sm" role="button" href="javascript:void(0);" id="${li_button_id}">Run</a>          </li>`;
         app_call_history_list_calls.appendChild(li);
+        document.getElementById(li_button_id).addEventListener("click", function(event) {
+          event.preventDefault();
+          let clicked_index = event.target.id.split("_").pop();
+          $.ajax({
+            url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/execute?item_idx=int:" + clicked_index,
+            type: "GET"
+          });
+        });
+        item_idx++;
       });
       await new Promise(r => setTimeout(r, 1000.0));
       await refresh_items_app_call_history_list_calls();
