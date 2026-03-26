@@ -1069,7 +1069,7 @@ class HGantry(Component):
             block: bool,
             check_bounds: bool,
             ignore_moves_shorter_than_mm: float
-    ):
+    ) -> Optional[CallImageBytes]:
         """
         Draw a spiral centered at the current location.
 
@@ -1081,6 +1081,8 @@ class HGantry(Component):
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
         """
 
         radius = outer_diameter_mm / 2.0
@@ -1105,6 +1107,14 @@ class HGantry(Component):
             check_bounds,
             ignore_moves_shorter_than_mm
         )
+
+        # we can only return an image of the drawing if we blocked and waited for it to complete
+        if block:
+            call_image_bytes = CallImageBytes(self.get_line_plot())
+        else:
+            call_image_bytes = None
+
+        return call_image_bytes
 
     def enable(
             self
