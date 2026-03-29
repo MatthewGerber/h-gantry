@@ -398,17 +398,27 @@ class HGantry(Component):
             mm_per_sec: float,
             block: bool,
             check_bounds: bool
-    ):
+    ) -> Optional[CallImageBytes]:
         """
         Center the gantry.
 
         :param mm_per_sec: Speed.
         :param block: Whether to block until the movement is complete.
         :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
         """
 
         logging.info('Centering gantry.')
         self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block, check_bounds)
+
+        # we can only return an image of the drawing if we blocked and waited for it to complete
+        if block:
+            call_image_bytes = CallImageBytes(self.get_line_plot())
+        else:
+            call_image_bytes = None
+
+        return call_image_bytes
 
     def move_to_left_limit(
             self,
