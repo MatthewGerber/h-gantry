@@ -1,0 +1,14 @@
+<div class="form-check form-switch switch-container">
+  <input class="form-check-input" type="checkbox" role="switch" id="app-call-history-start_macro-save_macro"/>
+  <label class="form-check-label" for="app-call-history-start_macro-save_macro">Record Macro</label>
+</div>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const app_call_history_start_macro_save_macro = $("#app-call-history-start_macro-save_macro");
+app_call_history_start_macro_save_macro.on("change", function () {
+  $.ajax({
+    url: app_call_history_start_macro_save_macro.is(":checked") ? "http://" + rest_host + ":" + rest_port + "/call/app-call-history/start_macro" : "http://" + rest_host + ":" + rest_port + "/call/app-call-history/save_macro",
+    type: "GET"
+  });
+});
+</script>

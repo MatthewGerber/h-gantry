@@ -1,0 +1,44 @@
+<div style="text-align: center">
+  <ul class="list-group list-group-light list-unstyled" id="app-call-history-list">
+  </ul>
+</div>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const app_call_history_list = document.getElementById("app-call-history-list");
+function action_button_clicked(event) {
+  event.preventDefault();
+  let clicked_id_parts = event.target.id.split("-");
+  let clicked_index = clicked_id_parts.at(-2);
+  let clicked_action_name = clicked_id_parts.at(-1);
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/" + clicked_action_name + "?item_idx=int:" + clicked_index,
+    type: "GET"
+  });
+}
+async function refresh_items_app_call_history_list() {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/list",
+    type: "GET",
+    success: async function (return_value) {
+      let item_idx = 0;
+      app_call_history_list.innerHTML = "";
+      return_value.forEach(item => {
+        const li = document.createElement("li");
+        li.innerHTML = `          <li class="list-group-item d-flex justify-content-between align-items-center">            <div class="d-flex align-items-center">              <img src="data:image/jpg;base64,${item.image}" alt="" style="width: 200px; height: 200px"/>              <div class="ms-3">                <p class="fw-bold mb-1">${item.title}</p>                <p class="text-muted mb-0">${item.description}</p>              </div>            </div>            <div class="link-container"><a class="btn btn-link btn-rounded btn-sm stacked-link" role="button" href="javascript:void(0);" id="app-call-history-list-${item_idx}-execute">Run</a><a class="btn btn-link btn-rounded btn-sm stacked-link" role="button" href="javascript:void(0);" id="app-call-history-list-${item_idx}-remove">Delete</a>            </div>          </li>`;
+        app_call_history_list.appendChild(li);
+        document.getElementById(`app-call-history-list-${item_idx}-execute`).addEventListener("click", action_button_clicked);
+        document.getElementById(`app-call-history-list-${item_idx}-remove`).addEventListener("click", action_button_clicked);
+        item_idx++;
+      });
+      await new Promise(r => setTimeout(r, 1000.0));
+      await refresh_items_app_call_history_list();
+    },
+    error: async function(xhr, error){
+      console.log(error);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await refresh_items_app_call_history_list();
+    }
+  });
+}
+refresh_items_app_call_history_list();
+</script>
