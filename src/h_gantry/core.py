@@ -1126,6 +1126,67 @@ class HGantry(Component):
 
         return call_image_bytes
 
+    def wipe(
+            self,
+            y_spacing_mm: float,
+            mm_per_sec: float,
+            block: bool
+    ) -> Optional[CallImageBytes]:
+        """
+        Wipe the board by drawing a line-by-line pattern.
+
+        :param y_spacing_mm: Vertical spacing of the lines.
+        :param mm_per_sec: Speed.
+        :param block: Whether to block until the movement is complete.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
+        """
+
+        curr_x_mm, curr_y_mm = (self.x, self.y)
+
+        def move(
+                x_mm: float,
+                y_mm: float
+        ):
+            """
+            Move to an x/y location and update current location.
+
+            :param x_mm: x location (mm).
+            :param y_mm: y location (mm).
+            """
+
+            nonlocal curr_x_mm
+            nonlocal curr_y_mm
+            self.move_to_point(x_mm, y_mm, mm_per_sec, False, False)
+            curr_x_mm, curr_y_mm = (self.x, self.y)
+
+        bottom_top_half_mm = (self.bottom_top_mm / 2.0)
+
+        move(0.0, curr_y_mm)
+        wipe_left_to_right = True
+
+        # wipe bottom-up halfway
+        for wipe_y_mm in np.arange(0.0, bottom_top_half_mm + y_spacing_mm, y_spacing_mm):
+            move(curr_x_mm, wipe_y_mm)
+            if wipe_left_to_right:
+                move(self.left_right_mm, wipe_y_mm)
+            else:
+                move(0.0, wipe_y_mm)
+
+            wipe_left_to_right = not wipe_left_to_right
+
+        # wipe top down
+        for wipe_y_mm in np.arange(self.bottom_top_mm, bottom_top_half_mm - y_spacing_mm, -y_spacing_mm):
+            move(curr_x_mm, wipe_y_mm)
+            if wipe_left_to_right:
+                move(self.left_right_mm, wipe_y_mm)
+            else:
+                move(0.0, wipe_y_mm)
+
+            wipe_left_to_right = not wipe_left_to_right
+
+        return self.center(mm_per_sec, block, False)
+
     def enable(
             self
     ):
