@@ -487,18 +487,23 @@ class HGantry(Component):
         """
 
         move_distance_mm = 200.0
+        limit_switch_buffer_mm = 10.0
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
+        self.move_to_offset(limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
         left_x = self.x
         self.move_to_right_limit(move_distance_mm, mm_per_sec)
+        self.move_to_offset(-limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
         right_x = self.x
         self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
         self.move_to_bottom_limit(move_distance_mm, mm_per_sec)
+        self.move_to_offset(0.0, limit_switch_buffer_mm, mm_per_sec, True, False)
         bottom_y = self.y
         self.move_to_top_limit(move_distance_mm, mm_per_sec)
+        self.move_to_offset(0.0, -limit_switch_buffer_mm, mm_per_sec, True, False)
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
@@ -1265,6 +1270,35 @@ class HGantry(Component):
         :return: List of 2-tuples of (1) element key and (2) element content.
         """
 
+        # wipe
+        wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'wipe-y_spacing_mm',
+            'y spacing (mm)',
+            '10.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'wipe-mm_per_sec',
+            'Speed (mm/sec)',
+            '150.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        wipe_block_switch_id, wipe_block_switch_ui_element = RpyFlask.get_switch(
+            'wipe-block',
+            None,
+            None,
+            'Block until complete',
+            True
+        )
+
+        wipe_dyn_args = [
+            ('y_spacing_mm', float, wipe_y_spacing_mm_textbox_id),
+            ('mm_per_sec', float, wipe_mm_per_sec_textbox_id),
+            ('block', bool, wipe_block_switch_id)
+        ]
+
         # spirograph
         spiro_R_textbox_id, spiro_R_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-upper-r',
@@ -1423,44 +1457,6 @@ class HGantry(Component):
             ('ignore_moves_shorter_than_mm', float, spiral_ignore_moves_textbox_id)
         ]
 
-        # wipe
-        wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element = RpyFlask.get_textbox(
-            'wipe-y_spacing_mm',
-            'y spacing (mm)',
-            '5.0',
-            RpyFlask.TextboxType.NUMBER
-        )
-
-        wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
-            'wipe-mm_per_sec',
-            'Speed (mm/sec)',
-            '100.0',
-            RpyFlask.TextboxType.NUMBER
-        )
-
-        wipe_block_switch_id, wipe_block_switch_ui_element = RpyFlask.get_switch(
-            'wipe-block',
-            None,
-            None,
-            'Block until complete',
-            True
-        )
-
-        wipe_check_bounds_switch_id, wipe_check_bounds_switch_ui_element = RpyFlask.get_switch(
-            'wipe-check_bounds',
-            None,
-            None,
-            'Check bounds',
-            True
-        )
-
-        wipe_dyn_args = [
-            ('y_spacing_mm', float, wipe_y_spacing_mm_textbox_id),
-            ('mm_per_sec', float, wipe_mm_per_sec_textbox_id),
-            ('block', bool, wipe_block_switch_id),
-            ('check_bounds', bool, wipe_check_bounds_switch_id)
-        ]
-
         # common argument for adding to the history
         add_to_history = {'add_to_history': True}
 
@@ -1479,7 +1475,6 @@ class HGantry(Component):
             (wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element),
             (wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element),
             (wipe_block_switch_id, wipe_block_switch_ui_element),
-            (wipe_check_bounds_switch_id, wipe_check_bounds_switch_ui_element),
 
             RpyFlask.get_button(self.id, self.draw_spirograph_from_params, add_to_history, draw_spirograph_dyn_args, None, None, None, 'Draw'),
             (spiro_R_textbox_id, spiro_R_textbox_ui_element),

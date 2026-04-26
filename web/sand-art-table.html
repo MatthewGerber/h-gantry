@@ -93,6 +93,29 @@
         </div>
 
         <div class="accordion-item">
+            <h2 class="accordion-header" id="wipe">
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-wipe" aria-expanded="false" aria-controls="collapse-wipe"
+                        style="background-color: aliceblue;">
+                    Wipe
+                </button>
+            </h2>
+            <div id="collapse-wipe" class="accordion-collapse collapse" aria-labelledby="wipe">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md">
+                            <div id="div-wipe-y_spacing_mm"></div>
+                            <div id="div-wipe-mm_per_sec"></div>
+                            <div id="div-wipe-block"></div>
+                            <div id="div-wipe-check_bounds"></div>
+                            <div id="div-gantry-1-wipe"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
             <h2 class="accordion-header" id="spiro">
                 <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
                         data-mdb-target="#collapse-spiro" aria-expanded="false" aria-controls="collapse-spiro"
@@ -181,8 +204,14 @@
 <script>$("#div-gantry-1-center").load("gantry-1-center.html");</script>
 <script>$("#div-gantry-1-clear_move_buffer").load("gantry-1-clear_move_buffer.html");</script>
 <script>$("#div-gantry-1-clear_point_history").load("gantry-1-clear_point_history.html");</script>
+
 <script>$("#div-app-call-history-list").load("app-call-history-list.html");</script>
 <script>$("#div-app-call-history-start_macro-save_macro").load("app-call-history-start_macro-save_macro.html");</script>
+
+<script>$("#div-wipe-y_spacing_mm").load("wipe-y_spacing_mm.html");</script>
+<script>$("#div-wipe-mm_per_sec").load("wipe-mm_per_sec.html");</script>
+<script>$("#div-wipe-block").load("wipe-block.html");</script>
+<script>$("#div-gantry-1-wipe").load("gantry-1-wipe.html");</script>
 
 <script>$("#div-spiro-upper-r").load("spiro-upper-r.html");</script>
 <script>$("#div-spiro-lower-r").load("spiro-lower-r.html");</script>
