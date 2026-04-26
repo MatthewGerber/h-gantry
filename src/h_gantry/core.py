@@ -1340,16 +1340,16 @@ class HGantry(Component):
         )
 
         draw_spirograph_dyn_args = [
-            ('R', int, f'{spiro_R_textbox_id}'),
-            ('r', int, f'{spiro_r_textbox_id}'),
-            ('d', int, f'{spiro_d_textbox_id}'),
-            ('theta_step', float, f'{spiro_theta_step_textbox_id}'),
-            ('scale', float, f'{spiro_scale_textbox_id}'),
-            ('mm_per_sec', float, f'{spiro_mm_per_sec_textbox_id}'),
-            ('return_to_current_position', bool, f'{spiro_return_switch_id}'),
-            ('block', bool, f'{spiro_block_switch_id}'),
-            ('check_bounds', bool, f'{spiro_check_bounds_switch_id}'),
-            ('ignore_moves_shorter_than_mm', float, f'{spiro_ignore_moves_textbox_id}')
+            ('R', int, spiro_R_textbox_id),
+            ('r', int, spiro_r_textbox_id),
+            ('d', int, spiro_d_textbox_id),
+            ('theta_step', float, spiro_theta_step_textbox_id),
+            ('scale', float, spiro_scale_textbox_id),
+            ('mm_per_sec', float, spiro_mm_per_sec_textbox_id),
+            ('return_to_current_position', bool, spiro_return_switch_id),
+            ('block', bool, spiro_block_switch_id),
+            ('check_bounds', bool, spiro_check_bounds_switch_id),
+            ('ignore_moves_shorter_than_mm', float, spiro_ignore_moves_textbox_id)
         ]
 
         # spiral
@@ -1416,13 +1416,52 @@ class HGantry(Component):
             ('outer_diameter_mm', float, spiral_outer_diameter_mm_textbox_id),
             ('loop_spacing_mm', float, spiral_loop_spacing_mm_textbox_id),
             ('step_degrees', float, spiral_step_degrees_textbox_id),
-            ('mm_per_sec', float, f'{spiral_mm_per_sec_textbox_id}'),
-            ('return_to_current_position', bool, f'{spiral_return_switch_id}'),
-            ('block', bool, f'{spiral_block_switch_id}'),
-            ('check_bounds', bool, f'{spiral_check_bounds_switch_id}'),
-            ('ignore_moves_shorter_than_mm', float, f'{spiral_ignore_moves_textbox_id}')
+            ('mm_per_sec', float, spiral_mm_per_sec_textbox_id),
+            ('return_to_current_position', bool, spiral_return_switch_id),
+            ('block', bool, spiral_block_switch_id),
+            ('check_bounds', bool, spiral_check_bounds_switch_id),
+            ('ignore_moves_shorter_than_mm', float, spiral_ignore_moves_textbox_id)
         ]
 
+        # wipe
+        wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'wipe-y_spacing_mm',
+            'y spacing (mm)',
+            '5.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'wipe-mm_per_sec',
+            'Speed (mm/sec)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        wipe_block_switch_id, wipe_block_switch_ui_element = RpyFlask.get_switch(
+            'wipe-block',
+            None,
+            None,
+            'Block until complete',
+            True
+        )
+
+        wipe_check_bounds_switch_id, wipe_check_bounds_switch_ui_element = RpyFlask.get_switch(
+            'wipe-check_bounds',
+            None,
+            None,
+            'Check bounds',
+            True
+        )
+
+        wipe_dyn_args = [
+            ('y_spacing_mm', float, wipe_y_spacing_mm_textbox_id),
+            ('mm_per_sec', float, wipe_mm_per_sec_textbox_id),
+            ('block', bool, wipe_block_switch_id),
+            ('check_bounds', bool, wipe_check_bounds_switch_id)
+        ]
+
+        # common argument for adding to the history
         add_to_history = {'add_to_history': True}
 
         return [
@@ -1435,6 +1474,13 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
+
+            RpyFlask.get_button(self.id, self.wipe, add_to_history, wipe_dyn_args, None, None, None, 'Wipe'),
+            (wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element),
+            (wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element),
+            (wipe_block_switch_id, wipe_block_switch_ui_element),
+            (wipe_check_bounds_switch_id, wipe_check_bounds_switch_ui_element),
+
             RpyFlask.get_button(self.id, self.draw_spirograph_from_params, add_to_history, draw_spirograph_dyn_args, None, None, None, 'Draw'),
             (spiro_R_textbox_id, spiro_R_textbox_ui_element),
             (spiro_r_textbox_id, spiro_r_textbox_ui_element),
@@ -1446,6 +1492,7 @@ class HGantry(Component):
             (spiro_return_switch_id, spiro_return_switch_ui_element),
             (spiro_block_switch_id, spiro_block_switch_ui_element),
             (spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element),
+
             RpyFlask.get_button(self.id, self.draw_spiral, add_to_history, draw_spiral_dyn_args, None, None, None, 'Draw'),
             (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
             (spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element),
@@ -1455,6 +1502,7 @@ class HGantry(Component):
             (spiral_block_switch_id, spiral_block_switch_ui_element),
             (spiral_check_bounds_switch_id, spiral_check_bounds_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
+
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
         ]
 
