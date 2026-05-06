@@ -487,7 +487,7 @@ class HGantry(Component):
         """
 
         move_distance_mm = 200.0
-        limit_switch_buffer_mm = 10.0
+        limit_switch_buffer_mm = 5.0
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
@@ -729,7 +729,10 @@ class HGantry(Component):
                 # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
 
-                logging.info(f'Sent {len(moves_to_send)} move(s) to Arduino.')
+                logging.info(
+                    f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
+                    f'remain in Python.'
+                )
 
     def read_completed_moves(
             self,
@@ -818,7 +821,9 @@ class HGantry(Component):
 
                 self.completed_move_points.append((self.actual_x, self.actual_y))
 
-                if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
+                if skipped_x_mm == 0.0 and skipped_y_mm == 0.0:
+                    succeeded_without_limit = True
+                else:
                     logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                     succeeded_without_limit = False
 
@@ -956,10 +961,21 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         """
 
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False) != False:
+        # disable the timer so that it doesn't read moves and cause a return of None in the move checks below
+        self.read_completed_moves_timer.stop()
+
+        # move by offset until we hit a limit switch
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False):
             pass
+
+        # back away from the switch in 2mm steps until we can move the offset direction by 1mm
         else:
+            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True, False):
+                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True, False)
+
             self.clear_move_buffer()
+
+        self.read_completed_moves_timer.start()
 
     def draw_spirograph_from_params(
             self,

@@ -16,7 +16,7 @@ def main():
     Gantry demonstration.
     """
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, force=True)
 
     setup()
 
@@ -79,6 +79,8 @@ def main():
 
     gantry.start()
 
+    # gantry.move_to_offset(30.0, 0.0, 100.0, True, False)
+    # gantry.move_to_left_limit(100.0, 100.0)
     # gantry.move_to_offset(10.0, 0.0, 100.0, True, False)
     # gantry.move_to_offset_limit(1.0, 1.0, 10.0)
     # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
