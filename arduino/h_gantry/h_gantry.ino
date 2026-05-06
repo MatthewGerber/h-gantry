@@ -768,10 +768,6 @@ void loop() {
 
       check_stepper_done_buffer(true);   
 
-      if (DEBUG) {
-        SerialUSB.println("Empty buffer");
-      }
-
       /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
        * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
        * when they resume stepping.

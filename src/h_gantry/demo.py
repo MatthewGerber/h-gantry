@@ -84,6 +84,8 @@ def main():
     # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
     # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
     # gantry.clear_move_buffer()
+    # gantry.move_to_point(0.0, gantry.y, 100.0, True, False)
+    # gantry.move_to_point(gantry.left_right_mm, gantry.y, 100.0, True, False)
     # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
     # gantry.calibrate(150.0)
