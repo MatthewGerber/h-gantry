@@ -1,0 +1,14 @@
+<div class="form-check form-switch switch-container">
+  <input class="form-check-input" type="checkbox" role="switch" id="app-call-history-enable_record_history-disable_record_history"/>
+  <label class="form-check-label" for="app-call-history-enable_record_history-disable_record_history">Record History</label>
+</div>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const app_call_history_enable_record_history_disable_record_history = $("#app-call-history-enable_record_history-disable_record_history");
+app_call_history_enable_record_history_disable_record_history.on("change", function () {
+  $.ajax({
+    url: app_call_history_enable_record_history_disable_record_history.is(":checked") ? "http://" + rest_host + ":" + rest_port + "/call/app-call-history/enable_record_history" : "http://" + rest_host + ":" + rest_port + "/call/app-call-history/disable_record_history",
+    type: "GET"
+  });
+});
+</script>
