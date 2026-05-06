@@ -1162,7 +1162,9 @@ class HGantry(Component):
 
             nonlocal curr_x_mm
             nonlocal curr_y_mm
+
             self.move_to_point(x_mm, y_mm, mm_per_sec, False, False)
+
             curr_x_mm, curr_y_mm = (self.x, self.y)
 
         bottom_top_half_mm = (self.bottom_top_mm / 2.0)
