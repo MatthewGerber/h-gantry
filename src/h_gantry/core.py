@@ -6,7 +6,7 @@ import os.path
 from collections import deque
 from datetime import timedelta
 from enum import IntEnum
-from threading import RLock
+from threading import RLock, Lock
 from time import time
 from typing import Tuple, List, Optional, Union
 
@@ -22,7 +22,7 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
-from raspberry_py.rest.application import RpyFlask, CallImageBytes
+from raspberry_py.rest.application import RpyFlask, CallImageBytes, BLANK_JPEG_BASE_64_STR
 from raspberry_py.utils import get_base_64_str
 
 
@@ -178,6 +178,8 @@ class HGantry(Component):
         self.state_path = state_path
 
         self.move_lock = RLock()
+        self.plot_lock = Lock()
+        self.curr_line_plot_base64_str = BLANK_JPEG_BASE_64_STR
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoA4988)
@@ -1179,7 +1181,7 @@ class HGantry(Component):
             nonlocal curr_x_mm
             nonlocal curr_y_mm
 
-            self.move_to_point(x_mm, y_mm, mm_per_sec, False, False)
+            self.move_to_point(x_mm, y_mm, mm_per_sec, True, False)
 
             curr_x_mm, curr_y_mm = (self.x, self.y)
 
@@ -1239,45 +1241,54 @@ class HGantry(Component):
         """
 
         with self.move_lock:
-            plt.plot(
-                *zip(*self.completed_move_points),
-                linestyle='-',
-                marker='.',
-                markersize=0.05,
-                label='Completed'
-            )
+            completed_move_points = self.completed_move_points.copy()
             pending_moves = self.moves_pending_in_python + list(self.moves_pending_in_arduino)
-            plt.plot(
-                *zip(
-                    *[
-                        (m.to_x_mm, m.to_y_mm)
-                        for m in pending_moves
-                    ]
-                ),
-                linestyle='-',
-                marker='o',
-                fillstyle='none',
-                alpha=0.5,
-                label='Future'
-            )
-            plotted = len(self.completed_move_points) + len(pending_moves) > 0
-            plt.gcf().set_size_inches(8.0, 8.0)
-            plt.gca().set_aspect('equal')
-            plt.grid()
-            if plotted:
-                plt.legend()
-            plt.xlim(0.0, self.left_right_mm)
-            plt.ylim(0.0, self.bottom_top_mm)
-            plt.xlabel('mm')
-            plt.ylabel('mm')
-            plt.tight_layout()
 
-            buffer = io.BytesIO()
-            plt.savefig(buffer, format='jpeg', bbox_inches='tight')
-            plt.close()
-            buffer.seek(0)
+        already_plotting = not self.plot_lock.acquire(blocking=False)
+        if not already_plotting:
+            try:
+                plt.plot(
+                    *zip(*completed_move_points),
+                    linestyle='-',
+                    marker='.',
+                    markersize=0.05,
+                    label='Completed'
+                )
+                plt.plot(
+                    *zip(
+                        *[
+                            (m.to_x_mm, m.to_y_mm)
+                            for m in pending_moves
+                        ]
+                    ),
+                    linestyle='-',
+                    marker='o',
+                    fillstyle='none',
+                    alpha=0.5,
+                    label='Future'
+                )
+                plotted = len(completed_move_points) + len(pending_moves) > 0
+                plt.gcf().set_size_inches(8.0, 8.0)
+                plt.gca().set_aspect('equal')
+                plt.grid()
+                if plotted:
+                    plt.legend()
+                plt.xlim(0.0, self.left_right_mm)
+                plt.ylim(0.0, self.bottom_top_mm)
+                plt.xlabel('mm')
+                plt.ylabel('mm')
+                plt.tight_layout()
 
-            return get_base_64_str(buffer.getvalue())
+                buffer = io.BytesIO()
+                plt.savefig(buffer, format='jpeg', bbox_inches='tight')
+                plt.close()
+                buffer.seek(0)
+                self.curr_line_plot_base64_str = get_base_64_str(buffer.getvalue())
+                
+            finally:
+                self.plot_lock.release()
+
+        return self.curr_line_plot_base64_str
 
     def get_ui_elements(
             self

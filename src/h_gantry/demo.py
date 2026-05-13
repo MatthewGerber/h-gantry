@@ -79,6 +79,12 @@ def main():
 
     gantry.start()
 
+    # investigating drift due to uncoordinated acceleration
+    # gantry.move_to_point(0.0, gantry.y, 150.0, False, False)
+    # gantry.move_to_offset(0.0, 20.0, 150.0, False, False)
+    # gantry.move_to_point(gantry.left_right_mm, gantry.y, 150.0, False, False)
+    # gantry.center(150.0, True, False)
+
     # gantry.move_to_offset(30.0, 0.0, 100.0, True, False)
     # gantry.move_to_left_limit(100.0, 100.0)
     # gantry.move_to_offset(10.0, 0.0, 100.0, True, False)
