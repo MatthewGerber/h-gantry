@@ -20,7 +20,7 @@ export function update_latency(element_id) {
       running_latency = latency;
     }
     else {
-      running_latency = alpha * running_latency + (1.0 - alpha) * latency;
+      running_latency = (1.0 - alpha) * running_latency + alpha * latency;
     }
     element_id_latency[element_id] = running_latency;
     return running_latency;

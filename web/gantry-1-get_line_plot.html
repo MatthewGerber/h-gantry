@@ -6,7 +6,7 @@
 import {rest_host, rest_port} from "./globals.js";
 import {init_latency, set_call_time, update_latency} from "./utils.js";
 const gantry_1_latency = $("#gantry-1-latency")[0];
-init_latency("gantry-1-latency", 0.99);
+init_latency("gantry-1-latency", 1.0);
 const gantry_1_get_line_plot = $("#gantry-1-get_line_plot")[0];
 async function capture_gantry_1_get_line_plot() {
   set_call_time("gantry-1-latency");
