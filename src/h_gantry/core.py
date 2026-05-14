@@ -1240,9 +1240,8 @@ class HGantry(Component):
         :return: Base-64 encoded image of line plot.
         """
 
-        with self.move_lock:
-            completed_move_points = self.completed_move_points.copy()
-            pending_moves = self.moves_pending_in_python + list(self.moves_pending_in_arduino)
+        completed_move_points = self.completed_move_points.copy()
+        pending_moves = list(self.moves_pending_in_arduino) + self.moves_pending_in_python
 
         already_plotting = not self.plot_lock.acquire(blocking=False)
         if not already_plotting:
@@ -1273,8 +1272,8 @@ class HGantry(Component):
                 plt.grid()
                 if plotted:
                     plt.legend()
-                plt.xlim(0.0, self.left_right_mm)
-                plt.ylim(0.0, self.bottom_top_mm)
+                plt.xlim(-5.0, self.left_right_mm + 5.0)
+                plt.ylim(-5.0, self.bottom_top_mm + 5.0)
                 plt.xlabel('mm')
                 plt.ylabel('mm')
                 plt.tight_layout()
