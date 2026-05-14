@@ -6,7 +6,7 @@ import os.path
 from collections import deque
 from datetime import timedelta
 from enum import IntEnum
-from threading import RLock
+from threading import RLock, Lock
 from time import time
 from typing import Tuple, List, Optional, Union
 
@@ -22,7 +22,7 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
-from raspberry_py.rest.application import RpyFlask, CallImageBytes
+from raspberry_py.rest.application import RpyFlask, CallImageBytes, BLANK_JPEG_BASE_64_STR
 from raspberry_py.utils import get_base_64_str
 
 
@@ -178,6 +178,8 @@ class HGantry(Component):
         self.state_path = state_path
 
         self.move_lock = RLock()
+        self.plot_lock = Lock()
+        self.curr_line_plot_base64_str = BLANK_JPEG_BASE_64_STR
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoA4988)
@@ -487,7 +489,7 @@ class HGantry(Component):
         """
 
         move_distance_mm = 200.0
-        limit_switch_buffer_mm = 10.0
+        limit_switch_buffer_mm = 5.0
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
@@ -729,7 +731,10 @@ class HGantry(Component):
                 # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
 
-                logging.info(f'Sent {len(moves_to_send)} move(s) to Arduino.')
+                logging.info(
+                    f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
+                    f'remain in Python.'
+                )
 
     def read_completed_moves(
             self,
@@ -818,7 +823,9 @@ class HGantry(Component):
 
                 self.completed_move_points.append((self.actual_x, self.actual_y))
 
-                if skipped_x_mm != 0.0 or skipped_y_mm != 0.0:
+                if skipped_x_mm == 0.0 and skipped_y_mm == 0.0:
+                    succeeded_without_limit = True
+                else:
                     logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                     succeeded_without_limit = False
 
@@ -956,10 +963,21 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         """
 
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False) != False:
+        # disable the timer so that it doesn't read moves and cause a return of None in the move checks below
+        self.read_completed_moves_timer.stop()
+
+        # move by offset until we hit a limit switch
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False):
             pass
+
+        # back away from the switch in 2mm steps until we can move the offset direction by 1mm
         else:
+            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True, False):
+                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True, False)
+
             self.clear_move_buffer()
+
+        self.read_completed_moves_timer.start()
 
     def draw_spirograph_from_params(
             self,
@@ -1163,7 +1181,7 @@ class HGantry(Component):
             nonlocal curr_x_mm
             nonlocal curr_y_mm
 
-            self.move_to_point(x_mm, y_mm, mm_per_sec, False, False)
+            self.move_to_point(x_mm, y_mm, mm_per_sec, True, False)
 
             curr_x_mm, curr_y_mm = (self.x, self.y)
 
@@ -1223,45 +1241,54 @@ class HGantry(Component):
         """
 
         with self.move_lock:
-            plt.plot(
-                *zip(*self.completed_move_points),
-                linestyle='-',
-                marker='.',
-                markersize=0.05,
-                label='Completed'
-            )
+            completed_move_points = self.completed_move_points.copy()
             pending_moves = self.moves_pending_in_python + list(self.moves_pending_in_arduino)
-            plt.plot(
-                *zip(
-                    *[
-                        (m.to_x_mm, m.to_y_mm)
-                        for m in pending_moves
-                    ]
-                ),
-                linestyle='-',
-                marker='o',
-                fillstyle='none',
-                alpha=0.5,
-                label='Future'
-            )
-            plotted = len(self.completed_move_points) + len(pending_moves) > 0
-            plt.gcf().set_size_inches(8.0, 8.0)
-            plt.gca().set_aspect('equal')
-            plt.grid()
-            if plotted:
-                plt.legend()
-            plt.xlim(0.0, self.left_right_mm)
-            plt.ylim(0.0, self.bottom_top_mm)
-            plt.xlabel('mm')
-            plt.ylabel('mm')
-            plt.tight_layout()
 
-            buffer = io.BytesIO()
-            plt.savefig(buffer, format='jpeg', bbox_inches='tight')
-            plt.close()
-            buffer.seek(0)
+        already_plotting = not self.plot_lock.acquire(blocking=False)
+        if not already_plotting:
+            try:
+                plt.plot(
+                    *zip(*completed_move_points),
+                    linestyle='-',
+                    marker='.',
+                    markersize=0.05,
+                    label='Completed'
+                )
+                plt.plot(
+                    *zip(
+                        *[
+                            (m.to_x_mm, m.to_y_mm)
+                            for m in pending_moves
+                        ]
+                    ),
+                    linestyle='-',
+                    marker='o',
+                    fillstyle='none',
+                    alpha=0.5,
+                    label='Future'
+                )
+                plotted = len(completed_move_points) + len(pending_moves) > 0
+                plt.gcf().set_size_inches(8.0, 8.0)
+                plt.gca().set_aspect('equal')
+                plt.grid()
+                if plotted:
+                    plt.legend()
+                plt.xlim(0.0, self.left_right_mm)
+                plt.ylim(0.0, self.bottom_top_mm)
+                plt.xlabel('mm')
+                plt.ylabel('mm')
+                plt.tight_layout()
 
-            return get_base_64_str(buffer.getvalue())
+                buffer = io.BytesIO()
+                plt.savefig(buffer, format='jpeg', bbox_inches='tight')
+                plt.close()
+                buffer.seek(0)
+                self.curr_line_plot_base64_str = get_base_64_str(buffer.getvalue())
+                
+            finally:
+                self.plot_lock.release()
+
+        return self.curr_line_plot_base64_str
 
     def get_ui_elements(
             self

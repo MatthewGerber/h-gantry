@@ -11,9 +11,9 @@ const size_t STEPPER_DONE_RESPONSE_LEN = 7;
 const byte NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 
-const size_t DONE_RESPONSE_BUFFER_LEN = NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
-byte STEPPER_DONE_RESPONSE_BUFFER[DONE_RESPONSE_BUFFER_LEN];
-byte NUM_DONE_BUFFERED = 0;
+const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
+byte STEPPER_DONE_RESPONSE_BUFFER[STEPPER_DONE_RESPONSE_BUFFER_LEN];
+byte NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
 
 // structure that gives simultaneous access to floating-point numbers and their underlying bytes
 typedef union {
@@ -463,11 +463,12 @@ void drive_stepper(
   unsigned long curr_time_us
 ) {
 
-  /* drive the stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow naturally.
-   * if travel is limited, do not drive the stepper but record the skipped increment for reporting back to the caller.
+  /* drive the stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow 
+   * naturally, when curr_time_us wraps back around to zero creating a negative elapsed time. if travel is being limited 
+   * by a limit switch, then drive immediately without waiting for elapsed time, to skip the rest of the move.
   */
   unsigned long us_elapsed_since_previous_drive = curr_time_us - stepper_to_drive->previous_drive_us;
-  if (stepper_to_drive->drives_remaining != 0 && us_elapsed_since_previous_drive >= stepper_to_drive->us_per_drive) {
+  if (limited_travel || (stepper_to_drive->drives_remaining != 0 && us_elapsed_since_previous_drive >= stepper_to_drive->us_per_drive)) {
 
     stepper_to_drive->drive_idx += stepper_to_drive->drive_increment;
     stepper_to_drive->drives_remaining -= stepper_to_drive->drive_increment;
@@ -479,6 +480,7 @@ void drive_stepper(
       stepper_to_drive->us_remaining = 0;
     }
 
+    // if travel is limited, then do not drive the stepper but record the skipped increment for reporting back to the caller.
     if (limited_travel) {
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
@@ -523,33 +525,39 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx) {
       SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx));
     }
 
+    // form response from stepper identifier, number of skipped steps, and move sequence index.
     byte response[STEPPER_DONE_RESPONSE_LEN];
     response[0] = stepper_done->identifier;
     floatbytes limit_skipped_steps;
     limit_skipped_steps.number = stepper_done->limit_skipped_drives / float(DRIVES_PER_STEP);
     memcpy(response + 1, limit_skipped_steps.bytes, FLOAT_BYTES_LEN);
-    byte two[2];
-    unsigned_int_to_bytes(idx, two);
-    memcpy(response + 5, two, 2);
+    byte idx_bytes[2];
+    unsigned_int_to_bytes(idx, idx_bytes);
+    memcpy(response + 5, idx_bytes, 2);
 
-    // buffer
-    size_t cpy_start_idx = NUM_DONE_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
+    // buffer the response and check/send responses
+    size_t cpy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
     memcpy(STEPPER_DONE_RESPONSE_BUFFER + cpy_start_idx, response, STEPPER_DONE_RESPONSE_LEN);
-    NUM_DONE_BUFFERED += 1;
+    NUM_STEPPER_DONE_RESPONSES_BUFFERED += 1;
     check_stepper_done_buffer(false);
 
 }
 
+/** 
+ * Check the stepper-done buffer, writing messages back to the client if the buffer is full.
+ *
+ * @param force_flush Whether to force writing all stepper-done messages back to the client.
+*/
 void check_stepper_done_buffer(bool force_flush) {
 
-  if (NUM_DONE_BUFFERED == 0) {
+  if (NUM_STEPPER_DONE_RESPONSES_BUFFERED == 0) {
     return;
   }
 
-  if (force_flush || NUM_DONE_BUFFERED >= NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
-      SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_DONE_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
+  if (force_flush || NUM_STEPPER_DONE_RESPONSES_BUFFERED >= NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
+      SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
       SerialUART.flush();
-      NUM_DONE_BUFFERED = 0;
+      NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
     }
 }
 
@@ -628,8 +636,8 @@ void loop() {
      * a) the gantry will move left when x_steps = (lss + rss) / 2 < 0, or when lss + rss < 0.
      * b) the gantry will move right when lss + rss > 0.
      * c) the gantry will remain at its x position when lss + rss = 0. in this case, either
-     * lss and rss are both 0 (steppers do not move), or lss = -rss, in which case the
-     * steppers move equally in opposite directions, which is up/down movement.
+     *    lss and rss are both 0 (steppers do not move), or lss = -rss, in which case the
+     *    steppers move equally in opposite directions, which is up/down movement.
      * 
      * 5) use (3c) and (3b) for y_steps:
      * ---------------------------------
@@ -640,12 +648,12 @@ void loop() {
      * a) the gantry will move down when y_steps = (lss - rss) / 2 < 0, or when lss - rss < 0.
      * b) the gantry will move up when lss - rss > 0.
      * c) the gantry will remain at its y position when lss - rss = 0. in this case, either
-     * lss and rss are both 0 (steppers do not move), or lss = rss, in which case the
-     * steppers move equally in the same direction, which is left/right movement.
+     *    lss and rss are both 0 (steppers do not move), or lss = rss, in which case the
+     *    steppers move equally in the same direction, which is left/right movement.
      *
      * 6) note that we take half steps, which means we drive a motor twice per step. for
-     * the purpose of checking left/right and down/up movement, it is equivalent to check
-     * the number of left and right drives that remain.
+     *    the purpose of checking left/right and down/up movement, it is equivalent to check
+     *    the number of left and right drives that remain.
     */
     bool moving_left = false;
     bool moving_right = false;
@@ -673,7 +681,8 @@ void loop() {
     }
 
     /* check whether the gantry has hit a limit and must stop. this is indicated by pressing 
-     * a limit switch in the direction of travel.
+     * a limit switch in the direction of travel. it is fine to continue traveling in a direction
+     * that is not toward a pressed limit switch.
      */
     bool limited_travel = (
       (moving_left && !digitalRead(left_limit_switch_pin)) ||
@@ -774,10 +783,12 @@ void loop() {
       */
       left_stepper.us_per_drive = 0;
       left_stepper.us_per_drive_target = 0;
+      left_stepper.drive_increment = 0;
       disable_stepper(&left_stepper);
 
       right_stepper.us_per_drive = 0;
       right_stepper.us_per_drive_target = 0;
+      right_stepper.drive_increment = 0;
       disable_stepper(&right_stepper);
 
       curr_step_idx = 0;
