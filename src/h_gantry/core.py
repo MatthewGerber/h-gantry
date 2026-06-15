@@ -83,16 +83,22 @@ class HGantry(Component):
 
         def __init__(
                 self,
+                started: bool,
+                enabled: bool,
                 x: float,
                 y: float
         ):
             """
             Initialize state.
 
+            :param started: Whether the gantry has been started.
+            :param enabled: Whether the gantry is enabled.
             :param x: X position.
             :param y: Y position.
             """
 
+            self.started = started
+            self.enabled = enabled
             self.x = x
             self.y = y
 
@@ -110,7 +116,12 @@ class HGantry(Component):
             if not isinstance(other, HGantry.State):
                 raise ValueError(f'Expected a {HGantry.State}')
 
-            return self.x == other.x and self.y == other.y
+            return (
+                self.started == other.started and
+                self.enabled == other.enabled and
+                self.x == other.x and
+                self.y == other.y
+            )
 
         def __str__(
                 self
@@ -121,7 +132,7 @@ class HGantry(Component):
             :return: String.
             """
 
-            return f'x={self.x:.3f}, y={self.y:.3f}'
+            return f'started={self.started}, enabled={self.enabled}, x={self.x:.3f}, y={self.y:.3f}'
 
     class Command(IntEnum):
         """
@@ -221,7 +232,7 @@ class HGantry(Component):
         self.actual_x = self.x
         self.actual_y = self.y
 
-        super().__init__(HGantry.State(self.x, self.y))
+        super().__init__(HGantry.State(False, True, self.actual_x, self.actual_y))
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
@@ -264,8 +275,6 @@ class HGantry(Component):
         self.read_completed_moves_timer = Clock(0.5)
         self.read_completed_moves_timer.event(lambda _: self.read_completed_moves(False))
         self.completed_move_points: List[Tuple[float, float]] = []
-
-        self.enabled = True
 
     def joystick_move(
             self,
@@ -344,6 +353,9 @@ class HGantry(Component):
         self.arduino_serial.manual_buffer = True
         self.read_completed_moves_timer.start()
 
+        state: HGantry.State = self.state
+        self.set_state(HGantry.State(True, state.enabled, state.x, state.y))
+
     def stop(
             self,
             save_state: bool
@@ -374,11 +386,14 @@ class HGantry(Component):
                     'y': self.y,
                     'left_right_mm': self.left_right_mm,
                     'bottom_top_mm': self.bottom_top_mm,
-                    'enabled': self.enabled,
+                    'enabled': self.enabled(),
                     'move_idx': self.move_idx
                 }))
         else:
             logging.warning('Not saving gantry state.')
+
+        state: HGantry.State = self.state
+        self.set_state(HGantry.State(False, state.enabled, state.x, state.y))
 
     def move_to_home_limit(
             self,
@@ -613,7 +628,7 @@ class HGantry(Component):
                 self.assert_point_in_bounds(x, y)
 
             # if disabled, then add to point history but do nothing else.
-            if not self.enabled:
+            if not self.enabled():
                 self.completed_move_points.append((x, y))
                 return True
 
@@ -819,7 +834,8 @@ class HGantry(Component):
                 # advance actual x and y positions, minus any skipped movement due to limit switches.
                 self.actual_x += move.move_x_mm - skipped_x_mm
                 self.actual_y += move.move_y_mm - skipped_y_mm
-                self.set_state(HGantry.State(self.actual_x, self.actual_y))
+                state: HGantry.State = self.state
+                self.set_state(HGantry.State(state.started, state.enabled, self.actual_x, self.actual_y))
 
                 self.completed_move_points.append((self.actual_x, self.actual_y))
 
@@ -1219,7 +1235,8 @@ class HGantry(Component):
         Enable the gantry. Moves will be executed and state will be updated.
         """
 
-        self.enabled = True
+        state: HGantry.State = self.state
+        self.set_state(HGantry.State(state.started, True, state.x, state.y))
 
     def disable(
             self
@@ -1229,7 +1246,20 @@ class HGantry(Component):
         executed, and the state will not be updated.
         """
 
-        self.enabled = False
+        state: HGantry.State = self.state
+        self.set_state(HGantry.State(state.started, False, state.x, state.y))
+
+    def enabled(
+            self
+    ) -> bool:
+        """
+        Get whether the gantry is enabled.
+
+        :return: True if enabled.
+        """
+
+        state: HGantry.State = self.state
+        return state.enabled
 
     def get_line_plot(
             self

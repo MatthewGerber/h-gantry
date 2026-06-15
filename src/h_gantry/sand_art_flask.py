@@ -1,12 +1,15 @@
 import logging
 import os
 
+import microcontroller
+import neopixel
 import serial
 from serial import Serial
 
 from h_gantry.core import HGantry
 from raspberry_py.gpio import CkPin
 from raspberry_py.gpio.communication import LockingSerial
+from raspberry_py.gpio.lights import FrameLedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
 
@@ -67,7 +70,12 @@ gantry = HGantry(
     timing_pulley_dia_mm=12.97,
     state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
 )
-gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
+gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
+
+pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 144, brightness=0.1, auto_write=False)
+led_strip = FrameLedStrip(pixels, 7.0, 500.0, 500.0)
+gantry.event(lambda s: led_strip.cross_point(s.x, s.y, FrameLedStrip.GREEN))
+
 gantry.id = 'gantry-1'
 gantry.start()
 
