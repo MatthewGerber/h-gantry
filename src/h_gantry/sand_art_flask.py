@@ -1,17 +1,20 @@
 import logging
 import os
 
+import RPi.GPIO as gpio
 import microcontroller
 import neopixel
 import serial
 from serial import Serial
 
 from h_gantry.core import HGantry
-from raspberry_py.gpio import CkPin
+from raspberry_py.gpio import CkPin, setup
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.lights import FrameLedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
+
+setup(gpio.BCM)
 
 STEPPER_FULL_STEPS_PER_REVOLUTION = 200
 STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 1.0
