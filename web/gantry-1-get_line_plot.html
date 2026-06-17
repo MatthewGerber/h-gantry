@@ -16,12 +16,12 @@ async function capture_gantry_1_get_line_plot() {
     success: async function (return_value) {
       gantry_1_get_line_plot.src = "data:image/jpg;base64," + return_value;
       gantry_1_latency.innerHTML = "Latency (ms):  " + update_latency("gantry-1-latency").toFixed(0);
-      await new Promise(r => setTimeout(r, 500.0));
+      await new Promise(r => setTimeout(r, 5000.0));
       await capture_gantry_1_get_line_plot();
     },
     error: async function(xhr, error){
       console.log(error);
-      await new Promise(r => setTimeout(r, 500.0));
+      await new Promise(r => setTimeout(r, 5000.0));
       await capture_gantry_1_get_line_plot();
     }
   });
