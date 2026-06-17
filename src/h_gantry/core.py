@@ -210,12 +210,17 @@ class HGantry(Component):
         self.cart_width_mm = 50.0
         self.cart_depth_mm = 50.0
 
+        enabled = True
         if os.path.exists(self.state_path):
             logging.info(f'Loading state from file:  {self.state_path}')
             with open(self.state_path, 'r') as f:
                 state = json.loads(f.read())
             for attribute, value in state.items():
-                setattr(self, attribute, value)
+                if attribute == 'enabled':
+                    enabled = value
+                    logging.info(f'Loaded enabled state:  {enabled}')
+                else:
+                    setattr(self, attribute, value)
             logging.info(f'State loaded. Position=({self.x:.3f},{self.y:.3f})')
         else:
             logging.info(f'No state file exists:  {self.state_path}')
@@ -232,7 +237,7 @@ class HGantry(Component):
         self.actual_x = self.x
         self.actual_y = self.y
 
-        super().__init__(HGantry.State(False, True, self.actual_x, self.actual_y))
+        super().__init__(HGantry.State(False, enabled, self.actual_x, self.actual_y))
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
@@ -246,8 +251,8 @@ class HGantry(Component):
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
-                joystick_y_ad_channel: (-150.0, 150.0),
-                joystick_x_ad_channel: (-150.0, 150.0)
+                joystick_y_ad_channel: (-1.0, 1.0),
+                joystick_x_ad_channel: (-1.0, 1.0)
             }
         )
         self.adc.only_report_state_changes = False
@@ -291,13 +296,13 @@ class HGantry(Component):
             self.center(100.0, True, True)
 
         # ignore negligible joystick movements and noise
-        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 10.0:
+        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 0.5:
 
             # move in the joystick direction as indicated by the vector norm
             move_vector = np.array([joystick_state.x, joystick_state.y])
             norm = np.linalg.norm(move_vector)
             if norm != 0.0:
-                move_x_mm, move_y_mm = (move_vector / norm) * 10.0
+                move_x_mm, move_y_mm = (move_vector / norm) * 2.0
                 try:
                     self.move_to_offset(
                         move_x_mm,
@@ -320,7 +325,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return max(1.0, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2))
+        return max(0.1, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)) * 100.0
 
     def start(
             self
@@ -1525,7 +1530,7 @@ class HGantry(Component):
             RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
             RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
             RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
-            RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=0.5), None, 1.0),
+            RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1.0), None, 1.0),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
 

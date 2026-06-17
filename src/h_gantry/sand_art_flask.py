@@ -10,7 +10,7 @@ from serial import Serial
 from h_gantry.core import HGantry
 from raspberry_py.gpio import CkPin, setup
 from raspberry_py.gpio.communication import LockingSerial
-from raspberry_py.gpio.lights import FrameLedStrip
+from raspberry_py.gpio.lights import FrameLedStrip, LedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
 
@@ -76,8 +76,25 @@ gantry = HGantry(
 gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 
 pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 144, brightness=0.1, auto_write=False)
-led_strip = FrameLedStrip(pixels, 7.0, 500.0, 500.0)
-gantry.event(lambda s: led_strip.cross_point(s.x, s.y, FrameLedStrip.GREEN))
+led_strip = FrameLedStrip(pixels, 7.0, 100.0, 100.0)
+
+def update_led_strip_on_gantry_update(
+        gantry_state: HGantry.State
+):
+    """
+    Update the LED strip when the gantry state changes.
+
+    :param gantry_state: Gantry state.
+    """
+
+    try:
+        led_strip.turn_off()
+        led_strip.cross_point(100.0 * gantry_state.x / gantry.left_right_mm, 100.0 * gantry_state.y / gantry.bottom_top_mm, FrameLedStrip.GREEN)
+        led_strip.show()
+    except LedStrip.InvalidPixelError as e:
+        logging.error(f'Error while setting LED strip:  {e}')
+
+gantry.event(update_led_strip_on_gantry_update)
 
 gantry.id = 'gantry-1'
 gantry.start()
