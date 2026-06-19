@@ -228,7 +228,7 @@ class HGantry(Component):
             self.y = 0.0
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
-            self.move_idx = 1  # the arduino driver uses 0 as a special "not driving" value
+            self.move_idx = 1  # the arduino driver uses idx 0 as a special "not driving" value
 
         # synchronize driver indices with gantry move index
         self.left_driver.idx = self.move_idx
@@ -270,16 +270,20 @@ class HGantry(Component):
         )
         self.joystick.only_report_state_changes = False
         self.joystick.event(lambda s: self.joystick_move(s))
-        self.joystick_update_interval_seconds = 0.01
+        self.joystick_update_interval_seconds = 1 / 50.0
 
         # move buffer management in python and arduino
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
         self.min_moves_pending_in_arduino = 5  # keep moves in arduino to maintain momentum
         self.max_moves_pending_in_arduino = 50  # arduino has limited memory for its move buffer
-        self.read_completed_moves_timer = Clock(0.5)
-        self.read_completed_moves_timer.event(lambda _: self.read_completed_moves(False))
         self.completed_move_points: List[Tuple[float, float]] = []
+
+        # blocking movements will wait for all moves to come back from the arduino, but non-blocking movements will not
+        # wait. in the latter case, we need a separate signal that periodically checks for and reads moves that are
+        # returned from the arduino. set up a clock that checks for moves.
+        self.read_completed_moves_timer = Clock(0.5)
+        self.read_completed_moves_timer.event(lambda _: self.read_completed_moves_from_arduino(False))
 
     def joystick_move(
             self,
@@ -291,26 +295,30 @@ class HGantry(Component):
         :param joystick_state: Joystick state.
         """
 
+        joystick_move_mm = 2.0
+
         # center on joystick press
         if joystick_state.z:
             self.center(100.0, True, True)
 
-        # ignore negligible joystick movements and noise
+        # ignore negligible joystick movements and noise. also limit the python-side move buffer to a small length to
+        # prevent excessive movement when the joystick is released.
         elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 0.5:
 
             # move in the joystick direction as indicated by the vector norm
             move_vector = np.array([joystick_state.x, joystick_state.y])
             norm = np.linalg.norm(move_vector)
             if norm != 0.0:
-                move_x_mm, move_y_mm = (move_vector / norm) * 2.0
+                move_x_mm, move_y_mm = (move_vector / norm) * joystick_move_mm
                 try:
                     self.move_to_offset(
                         move_x_mm,
                         move_y_mm,
                         HGantry.get_speed_from_joystick_state(joystick_state),
-                        True,
+                        False,
                         True
                     )
+                    self.send_moves_to_arduino(False)
                 except ValueError as e:
                     logging.error(f'Failed to move according to joystick:  {e}')
 
@@ -325,7 +333,7 @@ class HGantry(Component):
         :return: Speed.
         """
 
-        return max(0.1, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)) * 100.0
+        return 100.0  # max(0.1, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)) * 100.0
 
     def start(
             self
@@ -662,24 +670,28 @@ class HGantry(Component):
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-            # add a new python-side pending move, and send moves to arduino if it needs any.
-            self.moves_pending_in_python.append(Move(
-                x,
-                y,
-                move_x_mm,
-                move_y_mm,
-                left_stepper_steps,
-                right_stepper_steps,
-                time_to_step,
-                self.move_idx
-            ))
+            move_idx = self.move_idx
             self.move_idx += 1
-            self.send_moves_to_arduino_if_needed()
+            self.send_moves_to_arduino(
+                True,
+                [
+                    Move(
+                        x,
+                        y,
+                        move_x_mm,
+                        move_y_mm,
+                        left_stepper_steps,
+                        right_stepper_steps,
+                        time_to_step,
+                        move_idx
+                    )
+                ]
+            )
 
             # block for the move if needed
             succeeded_without_limit: Optional[bool] = None
             if block:
-                succeeded_without_limit = self.read_completed_moves(True)
+                succeeded_without_limit = self.read_completed_moves_from_arduino(True)
 
             # advance x and y positions as if the move was already completed, ignoring buffering. this is important
             # because subsequent calls to move need to be relative to this resulting location. we track the gantry's
@@ -713,8 +725,9 @@ class HGantry(Component):
             )
 
             # step motors and retain the driver return value functions in the move. the stepper drivers are asserted to
-            # operate asynchronously, so each return value will be a function that returns a stepper identifier and the
-            # number of skipped steps due to hitting a limit switch.
+            # operate asynchronously, so each return value will be a function that returns a tuple of (1) stepper
+            # identifier, (2) the number of skipped steps due to hitting a limit switch, and (3) the move index. these
+            # functions may be called later to await these tuples.
             (
                 move.get_left_driver_return_value,
                 move.get_right_driver_return_value
@@ -725,46 +738,59 @@ class HGantry(Component):
 
             self.moves_pending_in_arduino.append(move)
 
-    def send_moves_to_arduino_if_needed(
-            self
+    def send_moves_to_arduino(
+            self,
+            only_send_if_needed: bool,
+            moves: Optional[List[Move]] = None
     ):
         """
-        Send moves to the Arduino if its pending move buffer is low (and we have any moves to send).
+        Send moves to the Arduino if any are available on the Python side.
+
+        :param only_send_if_needed: Only send if the Arduino pending move buffer is low. If False, then the moves will be sent
+        regardless of whether Arduino needs them.
+        :param moves: Moves to add to the Python-side move buffer, or None to operate on moves that already exist.
         """
 
-        # if the arduino's pending move buffer is low, and we have moves pending in python, then send as many as we can
-        # in one big lump.
+        if moves is None:
+            moves = []
+
         with self.move_lock:
 
-            arduino_needs_moves = len(self.moves_pending_in_arduino) < self.min_moves_pending_in_arduino
-            python_has_moves = len(self.moves_pending_in_python) > 0
+            self.moves_pending_in_python.extend(moves)
 
-            if arduino_needs_moves and python_has_moves:
+            python_moves_available = len(self.moves_pending_in_python)
 
+            if only_send_if_needed:
                 max_num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
+            else:
+                max_num_moves_to_send = python_moves_available
+
+            if python_moves_available > 0 and max_num_moves_to_send > 0:
+
                 moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:
                     self.send_move_to_arduino(move_to_send)
 
-                self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
-
                 # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
+
+                self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
 
                 logging.info(
                     f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
                     f'remain in Python.'
                 )
 
-    def read_completed_moves(
+    def read_completed_moves_from_arduino(
             self,
             clear_move_buffers: bool
     ) -> Optional[bool]:
         """
-        Read completed moves.
+        Read completed moves from the Arduino.
 
-        :param clear_move_buffers: Whether to continue sending and reading moves until all move buffers are clear. If
-        False, then this function will only read one or more moves if they are already present in the serial read buffer
+        :param clear_move_buffers: Whether to continue sending, waiting for, and reading moves until all move buffers
+        are clear. If False, then this function will only read one or more moves if they are already present in the
+        serial read buffer.
         :return: True if a move was read without hitting a limit switch, False if limit switch was hit by a read move,
         and None if no moves were read.
         """
@@ -777,17 +803,17 @@ class HGantry(Component):
                 self.arduino_serial.connection.in_waiting > 0 or
                 (clear_move_buffers and len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0)
             ):
-                self.send_moves_to_arduino_if_needed()
+                self.send_moves_to_arduino(True)
 
-                logging.info('Reading move response from driver.')
+                logging.info('Reading move response from Arduino driver.')
 
                 move = self.moves_pending_in_arduino.popleft()
                 assert move.get_left_driver_return_value is not None
                 assert move.get_right_driver_return_value is not None
 
-                # get result (skipped steps) for each stepper. the drivers are asynchronous and so the results will
-                # come back in an unpredictable order. however, the result tuples have the stepper identifier as the
-                # first element, so we can key on that to obtain the result for each stepper.
+                # get result for each stepper. the drivers are asynchronous, and so the results will come back in an
+                # unpredictable order. however, the result tuples have the stepper identifier as the first element, so
+                # we can key on that to obtain the result for each stepper.
                 stepper_id_skipped_steps_idx = {
                     stepper_id: (skipped_steps, idx)
                     for stepper_id, skipped_steps, idx in [
@@ -850,7 +876,7 @@ class HGantry(Component):
                     logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                     succeeded_without_limit = False
 
-                logging.debug(f'Sent moves remaining:  {len(self.moves_pending_in_arduino)}')
+                logging.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
 
             return succeeded_without_limit
 

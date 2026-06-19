@@ -87,12 +87,13 @@ def update_led_strip_on_gantry_update(
     :param gantry_state: Gantry state.
     """
 
-    try:
-        led_strip.turn_off()
-        led_strip.cross_point(100.0 * gantry_state.x / gantry.left_right_mm, 100.0 * gantry_state.y / gantry.bottom_top_mm, FrameLedStrip.GREEN)
-        led_strip.show()
-    except LedStrip.InvalidPixelError as e:
-        logging.error(f'Error while setting LED strip:  {e}')
+    if gantry.left_right_mm > 0.0 and gantry.bottom_top_mm > 0.0:
+        try:
+            led_strip.turn_off()
+            led_strip.cross_point(100.0 * gantry_state.x / gantry.left_right_mm, 100.0 * gantry_state.y / gantry.bottom_top_mm, FrameLedStrip.GREEN)
+            led_strip.show()
+        except LedStrip.InvalidPixelError as e:
+            logging.error(f'Error while setting LED strip:  {e}')
 
 gantry.event(update_led_strip_on_gantry_update)
 
