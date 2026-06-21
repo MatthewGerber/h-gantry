@@ -270,7 +270,10 @@ class HGantry(Component):
         )
         self.joystick.only_report_state_changes = False
         self.joystick.event(lambda s: self.joystick_move(s))
-        self.joystick_update_interval_seconds = 1 / 50.0
+        self.joystick_update_interval_seconds = 0.01
+        self.joystick_move_mm = 10.0
+        self.joystick_min_speed_mm_per_sec = 20.0
+        self.joystick_max_speed_mm_per_sec = 150.0
 
         # move buffer management in python and arduino
         self.moves_pending_in_python: List[Move] = []
@@ -295,45 +298,35 @@ class HGantry(Component):
         :param joystick_state: Joystick state.
         """
 
-        joystick_move_mm = 2.0
-
         # center on joystick press
         if joystick_state.z:
             self.center(100.0, True, True)
 
-        # ignore negligible joystick movements and noise. also limit the python-side move buffer to a small length to
-        # prevent excessive movement when the joystick is released.
-        elif math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2) > 0.5:
+        else:
 
-            # move in the joystick direction as indicated by the vector norm
-            move_vector = np.array([joystick_state.x, joystick_state.y])
-            norm = np.linalg.norm(move_vector)
-            if norm != 0.0:
-                move_x_mm, move_y_mm = (move_vector / norm) * joystick_move_mm
-                try:
-                    self.move_to_offset(
-                        move_x_mm,
-                        move_y_mm,
-                        HGantry.get_speed_from_joystick_state(joystick_state),
-                        False,
-                        True
-                    )
-                    self.send_moves_to_arduino(False)
-                except ValueError as e:
-                    logging.error(f'Failed to move according to joystick:  {e}')
+            # ignore negligible joystick movements and noise
+            joystick_magnitude = math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+            if joystick_magnitude > 0.5:
 
-    @staticmethod
-    def get_speed_from_joystick_state(
-            joystick_state: Joystick.State
-    ) -> float:
-        """
-        Get speed from a joystick state.
-
-        :param joystick_state: State.
-        :return: Speed.
-        """
-
-        return 100.0  # max(0.1, math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)) * 100.0
+                # move in the joystick direction as indicated by the vector norm
+                move_vector = np.array([joystick_state.x, joystick_state.y])
+                norm = np.linalg.norm(move_vector)
+                if norm != 0.0:
+                    move_x_mm, move_y_mm = (move_vector / norm) * self.joystick_move_mm
+                    try:
+                        self.move_to_offset(
+                            move_x_mm,
+                            move_y_mm,
+                            self.joystick_min_speed_mm_per_sec +
+                            (
+                                self.joystick_max_speed_mm_per_sec -
+                                self.joystick_min_speed_mm_per_sec
+                            ) * (joystick_magnitude * 2.0 - 1.0),
+                            True,
+                            True
+                        )
+                    except ValueError as e:
+                        logging.error(f'Failed to move according to joystick:  {e}')
 
     def start(
             self
@@ -746,8 +739,8 @@ class HGantry(Component):
         """
         Send moves to the Arduino if any are available on the Python side.
 
-        :param only_send_if_needed: Only send if the Arduino pending move buffer is low. If False, then the moves will be sent
-        regardless of whether Arduino needs them.
+        :param only_send_if_needed: Only send if the Arduino pending move buffer is low. If False, then the moves will
+        be sent regardless of whether Arduino needs them.
         :param moves: Moves to add to the Python-side move buffer, or None to operate on moves that already exist.
         """
 
@@ -757,15 +750,14 @@ class HGantry(Component):
         with self.move_lock:
 
             self.moves_pending_in_python.extend(moves)
-
-            python_moves_available = len(self.moves_pending_in_python)
+            num_python_moves_available = len(self.moves_pending_in_python)
 
             if only_send_if_needed:
                 max_num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
             else:
-                max_num_moves_to_send = python_moves_available
+                max_num_moves_to_send = num_python_moves_available
 
-            if python_moves_available > 0 and max_num_moves_to_send > 0:
+            if num_python_moves_available > 0 and max_num_moves_to_send > 0:
 
                 moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:

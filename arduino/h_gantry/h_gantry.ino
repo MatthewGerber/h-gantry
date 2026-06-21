@@ -30,7 +30,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
   { HIGH }
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration
-const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1000;  // fastest driving directly from a dead stop
+const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 500;  // fastest driving directly from a dead stop
 const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
 
