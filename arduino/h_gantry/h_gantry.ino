@@ -8,10 +8,11 @@ const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
 const size_t STEPPER_DONE_RESPONSE_LEN = 7;
-const byte NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
+const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;  // maximum number of responses before force-flushing the response buffer. ensures the buffer does not exhaust memory.
+const byte MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_RESPONSE_BUFFER = 10;  // minimum step buffer length before force-flushing the response buffer. ensures responsiveness to the caller.
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 
-const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
+const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
 byte STEPPER_DONE_RESPONSE_BUFFER[STEPPER_DONE_RESPONSE_BUFFER_LEN];
 byte NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
 
@@ -111,7 +112,6 @@ struct step {
   unsigned int idx;
   step* next;
 };
-
 step* steps_head = nullptr;
 step* steps_tail = nullptr;
 unsigned int steps_len = 0;
@@ -554,7 +554,7 @@ void check_stepper_done_buffer(bool force_flush) {
     return;
   }
 
-  if (force_flush || NUM_STEPPER_DONE_RESPONSES_BUFFERED >= NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
+  if (force_flush || NUM_STEPPER_DONE_RESPONSES_BUFFERED >= MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
       SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
       SerialUART.flush();
       NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
@@ -772,10 +772,14 @@ void loop() {
 
     step* next_step = get_next_step();
 
-    // if the buffer is empty, then we have nothing further to do at this time.
-    if (next_step == nullptr) {   
+    // if the buffer is low/empty, then force-flush the stepper done buffer. the caller might 
+    // be waiting on this signal that the buffer is low before sending more moves.
+    if (steps_len <= MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_RESPONSE_BUFFER) {
+      check_stepper_done_buffer(true);
+    }
 
-      check_stepper_done_buffer(true);   
+    // if the buffer is empty, then we have nothing further to do at this time.
+    if (next_step == nullptr) {
 
       /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
        * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
@@ -809,7 +813,7 @@ void loop() {
       delete next_step;
 
       if (DEBUG) {
-        SerialUSB.println("Done starting step. Deleting step reference.");
+        SerialUSB.println("Done starting step. Deleted step reference.");
       }
 
     }

@@ -285,7 +285,7 @@ class HGantry(Component):
         # blocking movements will wait for all moves to come back from the arduino, but non-blocking movements will not
         # wait. in the latter case, we need a separate signal that periodically checks for and reads moves that are
         # returned from the arduino. set up a clock that checks for moves.
-        self.read_completed_moves_timer = Clock(0.5)
+        self.read_completed_moves_timer = Clock(0.1)
         self.read_completed_moves_timer.event(lambda _: self.read_completed_moves_from_arduino(False))
 
     def joystick_move(
@@ -751,9 +751,13 @@ class HGantry(Component):
 
             self.moves_pending_in_python.extend(moves)
             num_python_moves_available = len(self.moves_pending_in_python)
+            num_moves_pending_in_arduino = len(self.moves_pending_in_arduino)
 
             if only_send_if_needed:
-                max_num_moves_to_send = self.max_moves_pending_in_arduino - len(self.moves_pending_in_arduino)
+                if num_moves_pending_in_arduino <= self.min_moves_pending_in_arduino:
+                    max_num_moves_to_send = self.max_moves_pending_in_arduino - num_moves_pending_in_arduino
+                else:
+                    max_num_moves_to_send = 0
             else:
                 max_num_moves_to_send = num_python_moves_available
 
@@ -792,10 +796,18 @@ class HGantry(Component):
             succeeded_without_limit: Optional[bool] = None
 
             while (
+
+                # there is a completed move from arduino waiting to be read
                 self.arduino_serial.connection.in_waiting > 0 or
+
+                # we're clearing the buffers and there is a move somewhere in the pipeline
                 (clear_move_buffers and len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0)
             ):
-                self.send_moves_to_arduino(True)
+                # if we're clearing, then ensure that we continue to send all moves as needed so that all are completed.
+                # if we're not clearing, then there's no need to send moves to arduino, and this can be disruptive
+                # since sending can interrupt the arduino when it is not actually necessary.
+                if clear_move_buffers:
+                    self.send_moves_to_arduino(True)
 
                 logging.info('Reading move response from Arduino driver.')
 

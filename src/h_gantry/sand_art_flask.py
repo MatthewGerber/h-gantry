@@ -75,8 +75,8 @@ gantry = HGantry(
 )
 gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 
-pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 144, brightness=0.1, auto_write=False)
-led_strip = FrameLedStrip(pixels, 7.0, 100.0, 100.0)
+pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 288 - 15, brightness=0.1, auto_write=False)
+led_strip = FrameLedStrip(pixels, 7.0, 482.6, 482.6)
 
 def update_led_strip_on_gantry_update(
         gantry_state: HGantry.State
@@ -90,7 +90,7 @@ def update_led_strip_on_gantry_update(
     if gantry.left_right_mm > 0.0 and gantry.bottom_top_mm > 0.0:
         try:
             led_strip.turn_off()
-            led_strip.cross_point(100.0 * gantry_state.x / gantry.left_right_mm, 100.0 * gantry_state.y / gantry.bottom_top_mm, FrameLedStrip.GREEN)
+            led_strip.cross_point(gantry_state.x, gantry_state.y, FrameLedStrip.GREEN)
             led_strip.show()
         except LedStrip.InvalidPixelError as e:
             logging.error(f'Error while setting LED strip:  {e}')
