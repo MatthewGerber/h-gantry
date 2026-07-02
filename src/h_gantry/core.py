@@ -8,7 +8,7 @@ from datetime import timedelta
 from enum import IntEnum
 from threading import RLock, Lock
 from time import time
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Optional, Union, Any
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -39,6 +39,7 @@ class Move:
             move_y_mm: float,
             left_stepper_steps: int,
             right_stepper_steps: int,
+            start_time_epoch: float,
             time_to_step: timedelta,
             idx: int
     ):
@@ -51,6 +52,7 @@ class Move:
         :param move_y_mm: Y offset (mm).
         :param left_stepper_steps: Left stepper steps.
         :param right_stepper_steps: Right stepper steps.
+        :param start_time_epoch: Start timestamp (epoch).
         :param time_to_step: Duration of step.
         :param idx: Sequence index.
         """
@@ -61,10 +63,11 @@ class Move:
         self.move_y_mm = move_y_mm
         self.left_stepper_steps = left_stepper_steps
         self.right_stepper_steps = right_stepper_steps
+        self.start_time_epoch = start_time_epoch
         self.time_to_step = time_to_step
         self.idx = idx
 
-        self.timestamp = time()
+        self.end_time_epoch = self.start_time_epoch + self.time_to_step.total_seconds()
 
         # the driver return values are initially empty and are filled in when the move is sent to the driver
         self.get_left_driver_return_value: Optional[StepperMotorDriverAsynchronousReturn] = None
@@ -86,21 +89,27 @@ class HGantry(Component):
                 started: bool,
                 enabled: bool,
                 x: float,
-                y: float
+                y: float,
+                x_est: float,
+                y_est: float
         ):
             """
             Initialize state.
 
             :param started: Whether the gantry has been started.
             :param enabled: Whether the gantry is enabled.
-            :param x: X position.
-            :param y: Y position.
+            :param x: X position based on moves known to be completed. This might be inaccurate due to buffering.
+            :param x_est: Estimated true X position based on move timing.
+            :param y: Y position based on moves known to be completed. This might be inaccurate due to buffering.
+            :param y_est: Estimated true Y position based on move timing.
             """
 
             self.started = started
             self.enabled = enabled
             self.x = x
             self.y = y
+            self.x_est = x_est
+            self.y_est = y_est
 
         def __eq__(
                 self,
@@ -120,7 +129,9 @@ class HGantry(Component):
                 self.started == other.started and
                 self.enabled == other.enabled and
                 self.x == other.x and
-                self.y == other.y
+                self.y == other.y and
+                self.x_est == other.x_est and
+                self.y_est == other.y_est
             )
 
         def __str__(
@@ -132,7 +143,11 @@ class HGantry(Component):
             :return: String.
             """
 
-            return f'started={self.started}, enabled={self.enabled}, x={self.x:.3f}, y={self.y:.3f}'
+            return (
+                f'started={self.started}, enabled={self.enabled}, '
+                f'x={self.x:.3f}, y={self.y:.3f}, '
+                f'x est.={self.x_est:.3f}, y est.={self.y_est:.3f}'
+            )
 
     class Command(IntEnum):
         """
@@ -237,7 +252,9 @@ class HGantry(Component):
         self.actual_x = self.x
         self.actual_y = self.y
 
-        super().__init__(HGantry.State(False, enabled, self.actual_x, self.actual_y))
+        super().__init__(HGantry.State(
+            False, enabled, self.actual_x, self.actual_y, self.actual_x, self.actual_y
+        ))
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
@@ -283,10 +300,23 @@ class HGantry(Component):
         self.completed_move_points: List[Tuple[float, float]] = []
 
         # blocking movements will wait for all moves to come back from the arduino, but non-blocking movements will not
-        # wait. in the latter case, we need a separate signal that periodically checks for and reads moves that are
-        # returned from the arduino. set up a clock that checks for moves.
-        self.read_completed_moves_timer = Clock(0.1)
-        self.read_completed_moves_timer.event(lambda _: self.read_completed_moves_from_arduino(False))
+        # wait. in the latter case, we need a separate signal that periodically sends/receives moves to/from the
+        # arduino, thus ensuring that all moves are processed. also estimate the gantry's current location. do all of
+        # this on a clock.
+        self.pump_clock = Clock(0.5)
+        self.pump_clock.event(self.pump)
+
+    def pump(
+            self,
+            _: Any
+    ):
+        """
+        Pump the buffers and position estimation.
+        """
+
+        self.send_moves_to_arduino(True)
+        self.read_completed_moves_from_arduino(False)
+        self.set_state_with_estimated_location()
 
     def joystick_move(
             self,
@@ -355,12 +385,12 @@ class HGantry(Component):
 
         self.joystick.start_updating_state(self.joystick_update_interval_seconds)
 
-        # switch to manual buffering and start reading completed moves
+        # switch to manual buffering and start pumping
         self.arduino_serial.manual_buffer = True
-        self.read_completed_moves_timer.start()
+        self.pump_clock.start()
 
         state: HGantry.State = self.state
-        self.set_state(HGantry.State(True, state.enabled, state.x, state.y))
+        self.set_state(HGantry.State(True, state.enabled, state.x, state.y, state.x_est, state.y_est))
 
     def stop(
             self,
@@ -375,8 +405,8 @@ class HGantry(Component):
         # process the buffer to obtain current x/y position
         self.clear_move_buffer()
 
-        # stop reading completed moves and switch to automatic buffering to stop the steppers
-        self.read_completed_moves_timer.stop()
+        # stop pumping and switch to automatic buffering to stop the steppers
+        self.pump_clock.stop()
         self.arduino_serial.manual_buffer = False
 
         self.joystick.stop_updating_state()
@@ -399,7 +429,7 @@ class HGantry(Component):
             logging.warning('Not saving gantry state.')
 
         state: HGantry.State = self.state
-        self.set_state(HGantry.State(False, state.enabled, state.x, state.y))
+        self.set_state(HGantry.State(False, state.enabled, state.x, state.y, state.x_est, state.y_est))
 
     def move_to_home_limit(
             self,
@@ -663,6 +693,14 @@ class HGantry(Component):
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
+            # estimate the starting time of the move. this will be after the newest move (most recent; last to finish)
+            # if any moves exist. if no moves exist, then the current move will start at the current time.
+            fifo_moves = self.get_fifo_moves()
+            if len(fifo_moves) > 0:
+                start_time_epoch = fifo_moves[-1].end_time_epoch
+            else:
+                start_time_epoch = time()
+
             move_idx = self.move_idx
             self.move_idx += 1
             self.send_moves_to_arduino(
@@ -675,6 +713,7 @@ class HGantry(Component):
                         move_y_mm,
                         left_stepper_steps,
                         right_stepper_steps,
+                        start_time_epoch,
                         time_to_step,
                         move_idx
                     )
@@ -694,6 +733,72 @@ class HGantry(Component):
             self.y += move_y_mm
 
             return succeeded_without_limit
+
+    def set_state_with_estimated_location(
+            self
+    ):
+        """
+        Set the current state using the estimated location.
+        """
+
+        state: HGantry.State = self.state
+        self.set_state(HGantry.State(state.started, state.enabled, state.x, state.y, *self.estimate_location_at_time()))
+
+    def estimate_location_at_time(
+            self,
+            time_epoch: Optional[float] = None
+    ) -> Tuple[float, float]:
+        """
+        Estimate the location at a given time.
+
+        :param time_epoch: Time (epoch), or None to estimate location at the current time.
+        :return: Estimated location as x-y tuple.
+        """
+
+        if time_epoch is None:
+            time_epoch = time()
+
+        fifo_moves = self.get_fifo_moves()
+
+        print(f'Estimating location from {len(fifo_moves)} moves.')
+
+        # if there are no moves, then the x/y position will reflect the current position.
+        if len(fifo_moves) == 0:
+            x, y = self.x, self.y
+
+        # otherwise, scan moves in fifo order (those finishing soonest first). because of buffering both in the python
+        # and arduino sides, plus response buffering from arduino, multiple moves at the beginning might have already
+        # completed. scan until we find one finishing in the future. the move finishing prior to this (most recently in
+        # the past) will contain the best estimate of the current location.
+        else:
+
+            future_i = next(
+                iter([
+                    i
+                    for i, move in enumerate(fifo_moves)
+                    if move.end_time_epoch > time_epoch
+                ]),
+                None
+            )
+
+            print(f'Future idx:  {future_i}')
+
+            # if all moves are in the past and have completed, then the final move is the current position.
+            if future_i is None:
+                m = fifo_moves[-1]
+                x, y = m.to_x_mm, m.to_y_mm
+
+            # if all moves are in the future and none have completed, then the actual x/y positions that we track
+            # are the most accurate estimate of the current location.
+            elif future_i == 0:
+                x, y = self.actual_x, self.actual_y
+
+            # otherwise, the move prior to the future one is the best estimate.
+            else:
+                m = fifo_moves[future_i - 1]
+                x, y = m.to_x_mm, m.to_y_mm
+
+        return x, y
 
     def send_move_to_arduino(
             self,
@@ -804,8 +909,8 @@ class HGantry(Component):
                 (clear_move_buffers and len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0)
             ):
                 # if we're clearing, then ensure that we continue to send all moves as needed so that all are completed.
-                # if we're not clearing, then there's no need to send moves to arduino, and this can be disruptive
-                # since sending can interrupt the arduino when it is not actually necessary.
+                # if we're not clearing and there's just a completed move waiting to be read, then don't bother to send
+                # moves...just read the waiting one.
                 if clear_move_buffers:
                     self.send_moves_to_arduino(True)
 
@@ -827,7 +932,7 @@ class HGantry(Component):
                 }
                 assert len(stepper_id_skipped_steps_idx) == 2
                 assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
-                elapsed_seconds = time() - move.timestamp
+                elapsed_seconds = time() - move.start_time_epoch
                 left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
                 right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
 
@@ -870,7 +975,9 @@ class HGantry(Component):
                 self.actual_x += move.move_x_mm - skipped_x_mm
                 self.actual_y += move.move_y_mm - skipped_y_mm
                 state: HGantry.State = self.state
-                self.set_state(HGantry.State(state.started, state.enabled, self.actual_x, self.actual_y))
+                self.set_state(HGantry.State(
+                    state.started, state.enabled, self.actual_x, self.actual_y, state.x_est, state.y_est
+                ))
 
                 self.completed_move_points.append((self.actual_x, self.actual_y))
 
@@ -1015,7 +1122,7 @@ class HGantry(Component):
         """
 
         # disable the timer so that it doesn't read moves and cause a return of None in the move checks below
-        self.read_completed_moves_timer.stop()
+        self.pump_clock.stop()
 
         # move by offset until we hit a limit switch
         while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False):
@@ -1028,7 +1135,7 @@ class HGantry(Component):
 
             self.clear_move_buffer()
 
-        self.read_completed_moves_timer.start()
+        self.pump_clock.start()
 
     def draw_spirograph_from_params(
             self,
@@ -1271,7 +1378,7 @@ class HGantry(Component):
         """
 
         state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, True, state.x, state.y))
+        self.set_state(HGantry.State(state.started, True, state.x, state.y, state.x_est, state.y_est))
 
     def disable(
             self
@@ -1282,7 +1389,7 @@ class HGantry(Component):
         """
 
         state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, False, state.x, state.y))
+        self.set_state(HGantry.State(state.started, False, state.x, state.y, state.x_est, state.y_est))
 
     def enabled(
             self
@@ -1296,6 +1403,17 @@ class HGantry(Component):
         state: HGantry.State = self.state
         return state.enabled
 
+    def get_fifo_moves(
+            self
+    ) -> List[Move]:
+        """
+        Get moves in FIFO order with those finishing first being first in the returned list.
+
+        :return: List of Move objects.
+        """
+
+        return list(self.moves_pending_in_arduino) + self.moves_pending_in_python
+
     def get_line_plot(
             self
     ) -> str:
@@ -1306,7 +1424,9 @@ class HGantry(Component):
         """
 
         completed_move_points = self.completed_move_points.copy()
-        pending_moves = list(self.moves_pending_in_arduino) + self.moves_pending_in_python
+
+        # get moves in order of soonest to be completed to latest to be completed
+        pending_moves = self.get_fifo_moves()
 
         already_plotting = not self.plot_lock.acquire(blocking=False)
         if not already_plotting:

@@ -90,7 +90,7 @@ def update_led_strip_on_gantry_update(
     if gantry.left_right_mm > 0.0 and gantry.bottom_top_mm > 0.0:
         try:
             led_strip.turn_off()
-            led_strip.cross_point(gantry_state.x, gantry_state.y, FrameLedStrip.GREEN)
+            led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.GREEN)
             led_strip.show()
         except LedStrip.InvalidPixelError as e:
             logging.error(f'Error while setting LED strip:  {e}')
