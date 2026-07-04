@@ -751,63 +751,58 @@ class HGantry(Component):
         """
 
         state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, state.enabled, state.x, state.y, *self.estimate_location_at_time()))
+        self.set_state(HGantry.State(state.started, state.enabled, state.x, state.y, *self.estimate_current_location()))
 
-    def estimate_location_at_time(
+    def estimate_current_location(
             self,
-            time_epoch: Optional[float] = None
     ) -> Tuple[float, float]:
         """
-        Estimate the location at a given time.
+        Estimate the current location.
 
-        :param time_epoch: Time (epoch), or None to estimate location at the current time.
         :return: Estimated location as x-y tuple.
         """
 
-        if time_epoch is None:
-            time_epoch = time()
+        current_time_epoch = time()
 
         fifo_moves = self.get_fifo_moves()
 
         # if there are no moves, then the x/y position will reflect the current position.
         if len(fifo_moves) == 0:
             with self.move_lock:
-                x, y = self.x, self.y
+                curr_x, curr_y = self.x, self.y
 
-        # otherwise, scan moves in fifo order (those finishing soonest first). because of buffering both in the python
-        # and arduino sides, plus response buffering from arduino, multiple moves at the beginning might have already
-        # completed. scan until we find one finishing in the future. the move finishing prior to this (most recently in
-        # the past) will contain the best estimate of the current location.
+        # if all moves are in the future, then the actual x/y positions that we track are the most accurate estimate of
+        # the current location. this should not be generally possible, as time only moves forward from the creation of
+        # each move.
+        elif current_time_epoch < fifo_moves[0].start_time_epoch:
+            with self.move_lock:
+                curr_x, curr_y = self.actual_x, self.actual_y
+
+        # if all moves are in the past, then they should all be complete, and the best estimate is the final move
+        # position.
+        elif current_time_epoch >= fifo_moves[-1].end_time_epoch:
+            final_move = fifo_moves[-1]
+            curr_x, curr_y = final_move.to_x_mm, final_move.to_y_mm
+
+        # otherwise, we're in the middle of a move. find it and estimate our progress through it.
         else:
-
-            future_i = next(
-                iter([
-                    i
-                    for i, move in enumerate(fifo_moves)
-                    if move.end_time_epoch > time_epoch
-                ]),
-                None
+            curr_move = next(
+                (
+                    move
+                    for move in fifo_moves
+                    if move.start_time_epoch <= current_time_epoch < move.end_time_epoch
+                )
             )
+            fraction_through_curr_move = (
+                (current_time_epoch - curr_move.start_time_epoch) /
+                (curr_move.end_time_epoch - curr_move.start_time_epoch)
+            )
+            curr_move_start_x = curr_move.to_x_mm - curr_move.move_x_mm
+            curr_x = curr_move_start_x + fraction_through_curr_move * curr_move.move_x_mm
+            curr_move_start_y = curr_move.to_y_mm - curr_move.move_y_mm
+            curr_y = curr_move_start_y + fraction_through_curr_move * curr_move.move_y_mm
 
-            print(f'Future idx:  {future_i}')
-
-            # if all moves are in the past and have completed, then the final move is the current position.
-            if future_i is None:
-                m = fifo_moves[-1]
-                x, y = m.to_x_mm, m.to_y_mm
-
-            # if all moves are in the future and none have completed, then the actual x/y positions that we track
-            # are the most accurate estimate of the current location.
-            elif future_i == 0:
-                with self.move_lock:
-                    x, y = self.actual_x, self.actual_y
-
-            # otherwise, the move prior to the future one is the best estimate.
-            else:
-                m = fifo_moves[future_i - 1]
-                x, y = m.to_x_mm, m.to_y_mm
-
-        return x, y
+        return curr_x, curr_y
 
     def send_move_to_arduino(
             self,
@@ -891,6 +886,101 @@ class HGantry(Component):
                     f'remain in Python.'
                 )
 
+    def get_move_to_read_from_arduino(
+            self,
+            clear_move_buffers: bool
+    ) -> Optional[Move]:
+        """
+        Get a move to read from Arduino.
+
+        :param clear_move_buffers: Whether move buffers should be cleared.
+        :return: Move to read, or None if there is no move.
+        """
+
+        move = None
+
+        with self.move_lock:
+
+            # check whether we're ready to read a move
+            ready = False
+            if self.arduino_serial.connection.in_waiting > 0:
+                ready = True
+            elif clear_move_buffers:
+                moves_pending = len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0
+                if moves_pending:
+                    self.send_moves_to_arduino(True)
+                    ready = True
+
+            # get next move that will come back from arduino. we cannot be in a situation where the arduino buffer is
+            # empty, since either (1) there are bytes waiting, or (2) we're clearing and there's a move somewhere in the
+            # pipeline. in case (2), there will be a move in the arduino buffer because we just sent moves above, and we
+            # will have placed at least one move into the arduino buffer.
+            if ready:
+                move = self.moves_pending_in_arduino[0]
+
+        return move
+
+    def read_move_from_arduino(
+            self,
+            move: Move
+    ) -> Tuple[float, float, float]:
+        """
+        Read a move from Arduino, which will block until the Arduino sends the read-completed message back.
+
+        :param move: Move to read.
+        :return: 3-tuple of elapsed seconds for the move, left stepper skipped steps, and right stepper skipped steps.
+        """
+
+        assert move.get_left_driver_return_value is not None
+        assert move.get_right_driver_return_value is not None
+
+        # get result for each stepper. the drivers are asynchronous, and so the results will come back in an
+        # unpredictable order. however, the result tuples have the stepper identifier as the first element,
+        # so we can key on that to obtain the result for each stepper.
+        logging.info('Reading move response from Arduino driver.')
+        stepper_id_skipped_steps_idx = {
+            stepper_id: (skipped_steps, idx)
+            for stepper_id, skipped_steps, idx in [
+                move.get_left_driver_return_value(),
+                move.get_right_driver_return_value()
+            ]
+        }
+        assert len(stepper_id_skipped_steps_idx) == 2
+        assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
+        with self.move_lock:
+            assert move.idx == self.moves_pending_in_arduino[0].idx
+            self.moves_pending_in_arduino.popleft()
+            logging.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
+        elapsed_seconds = time() - move.start_time_epoch
+        left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
+        right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
+
+        return elapsed_seconds, left_stepper_skipped_steps, right_stepper_skipped_steps
+
+    def update_stepper_state(
+            self,
+            stepper: Stepper,
+            steps: float,
+            skipped: float,
+            elapsed_seconds: float
+    ):
+        """
+        Update stepper state.
+
+        :param stepper: Stepper to update.
+        :param steps: Intended steps.
+        :param skipped: Steps skipped.
+        :param elapsed_seconds: Elapsed seconds.
+        """
+
+        stepper_state: Stepper.State = stepper.state
+        super(Stepper, stepper).set_state(
+            Stepper.State(
+                round(stepper_state.step + steps - skipped),
+                timedelta(seconds=elapsed_seconds)
+            )
+        )
+
     def read_completed_moves_from_arduino(
             self,
             clear_move_buffers: bool
@@ -908,92 +998,43 @@ class HGantry(Component):
         succeeded_without_limit: Optional[bool] = None
 
         # do not permit concurrent reads, as this can mix up the driver return sequence identifiers. block if the caller
-        # is requesting to clear the move buffers, since whoever might be holding the lock might not be clearing them,
-        # and we must honor the caller's desire to clear.
-        already_reading = not self.driver_read_lock.acquire(blocking=clear_move_buffers)
-        if not already_reading:
+        # is requesting to clear the move buffers, since whoever might already be holding the lock might not be clearing
+        # them, and we must honor the caller's desire to clear.
+        driver_read_lock_acquired = self.driver_read_lock.acquire(blocking=clear_move_buffers)
+        if driver_read_lock_acquired:
             try:
+                while (move := self.get_move_to_read_from_arduino(clear_move_buffers)) is not None:
 
-                # read as long as there is a possibility/need to do so
-                while True:
+                    (
+                        elapsed_seconds,
+                        left_stepper_skipped_steps,
+                        right_stepper_skipped_steps
+                    ) = self.read_move_from_arduino(move)
 
-                    # if there are no bytes waiting, then check whether we're clearing the buffers and there's a pending
-                    # move. if this also is not the case, then we're done.
-                    bytes_waiting = self.arduino_serial.connection.in_waiting > 0
-                    if not bytes_waiting:
-                        with self.move_lock:
-                            clearing_and_moves_pending = (
-                                clear_move_buffers and
-                                len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0
-                            )
-                            if not clearing_and_moves_pending:
-                                break
-
-                    # if we're clearing, then ensure that we continue to send all moves as needed so that all are
-                    # completed. if we're not clearing and there's just a completed move waiting to be read, then don't
-                    # bother to send moves...just read the waiting one.
-                    if clear_move_buffers:
-                        self.send_moves_to_arduino(True)
-
-                    # get next move that will come back from arduino. we cannot be in a situation where the arduino
-                    # buffer is empty, since either (1) there are bytes waiting, or (2) we're clearing and there's a
-                    # move somewhere in the pipeline. in case (2), there will be a move in the arduino buffer because we
-                    # just sent moves above, and we will have placed at least one move into the arduino buffer.
-                    with self.move_lock:
-                        move = self.moves_pending_in_arduino.popleft()
-                        assert move.get_left_driver_return_value is not None
-                        assert move.get_right_driver_return_value is not None
-
-                    # get result for each stepper. the drivers are asynchronous, and so the results will come back in an
-                    # unpredictable order. however, the result tuples have the stepper identifier as the first element,
-                    # so we can key on that to obtain the result for each stepper.
-                    logging.info('Reading move response from Arduino driver.')
-                    stepper_id_skipped_steps_idx = {
-                        stepper_id: (skipped_steps, idx)
-                        for stepper_id, skipped_steps, idx in [
-                            move.get_left_driver_return_value(),
-                            move.get_right_driver_return_value()
-                        ]
-                    }
-
-                    assert len(stepper_id_skipped_steps_idx) == 2
-                    assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
-                    elapsed_seconds = time() - move.start_time_epoch
-                    left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
-                    right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
-
-                    # update stepper states now that we have results
-                    left_stepper_state: Stepper.State = self.left_stepper.state
-                    super(Stepper, self.left_stepper).set_state(
-                        Stepper.State(
-                            round(
-                                left_stepper_state.step +
-                                move.left_stepper_steps -
-                                left_stepper_skipped_steps
-                            ),
-                            timedelta(seconds=elapsed_seconds)
-                        )
-                    )
-                    right_stepper_state: Stepper.State = self.right_stepper.state
-                    super(Stepper, self.right_stepper).set_state(
-                        Stepper.State(
-                            round(
-                                right_stepper_state.step +
-                                move.right_stepper_steps -
-                                right_stepper_skipped_steps
-                            ),
-                            timedelta(seconds=elapsed_seconds)
-                        )
+                    self.update_stepper_state(
+                        self.left_stepper,
+                        move.left_stepper_steps,
+                        left_stepper_skipped_steps,
+                        elapsed_seconds
                     )
 
-                    # calculate skipped distances from skipped steps
+                    self.update_stepper_state(
+                        self.right_stepper,
+                        move.right_stepper_steps,
+                        right_stepper_skipped_steps,
+                        elapsed_seconds
+                    )
+
                     skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(
                         left_stepper_skipped_steps,
                         right_stepper_skipped_steps
                     )
 
+                    # set to success only once. if we hit a limit, then always set to failure and do not reset to
+                    # success. the caller needs to know if we hit a limit at any point.
                     if skipped_x_mm == 0.0 and skipped_y_mm == 0.0:
-                        succeeded_without_limit = True
+                        if succeeded_without_limit is None:
+                            succeeded_without_limit = True
                     else:
                         logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                         succeeded_without_limit = False
@@ -1016,8 +1057,6 @@ class HGantry(Component):
                         ))
 
                         self.completed_move_points.append((self.actual_x, self.actual_y))
-
-                        logging.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
 
             finally:
                 self.driver_read_lock.release()
@@ -1472,8 +1511,8 @@ class HGantry(Component):
             completed_move_points = self.completed_move_points.copy()
             pending_moves = self.get_fifo_moves()
 
-        already_plotting = not self.plot_lock.acquire(blocking=False)
-        if not already_plotting:
+        plot_lock_acquired = self.plot_lock.acquire(blocking=False)
+        if plot_lock_acquired:
             try:
                 plt.plot(
                     *zip(*completed_move_points),
