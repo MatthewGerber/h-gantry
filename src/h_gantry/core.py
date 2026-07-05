@@ -1,14 +1,14 @@
 import io
-import json
 import logging
 import math
 import os.path
+import pickle
 from collections import deque
 from datetime import timedelta
-from enum import IntEnum
+from enum import IntEnum, Enum, auto
 from threading import RLock, Lock
 from time import time
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Optional, Union, cast
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -79,6 +79,20 @@ class HGantry(Component):
     Control for a two-axis gantry using two fixed-position stepper motors.
     """
 
+    class CalibrationStatus(Enum):
+        """
+        Calibration statuses.
+        """
+
+        # initialized but pre-calibration
+        NONE = auto()
+
+        # in the middle of the calibration process
+        CALIBRATING = auto()
+
+        # calibrated
+        CALIBRATED = auto()
+
     class State(Component.State):
         """
         Gantry state.
@@ -88,6 +102,7 @@ class HGantry(Component):
                 self,
                 started: bool,
                 enabled: bool,
+                calibration_status: 'HGantry.CalibrationStatus',
                 x: float,
                 y: float,
                 x_est: float,
@@ -98,14 +113,16 @@ class HGantry(Component):
 
             :param started: Whether the gantry has been started.
             :param enabled: Whether the gantry is enabled.
+            :param calibration_status: Calibration status.
             :param x: X position based on moves known to be completed. This might be inaccurate due to buffering.
-            :param x_est: Estimated true X position based on move timing.
             :param y: Y position based on moves known to be completed. This might be inaccurate due to buffering.
+            :param x_est: Estimated true X position based on move timing.
             :param y_est: Estimated true Y position based on move timing.
             """
 
             self.started = started
             self.enabled = enabled
+            self.calibration_status = calibration_status
             self.x = x
             self.y = y
             self.x_est = x_est
@@ -128,6 +145,7 @@ class HGantry(Component):
             return (
                 self.started == other.started and
                 self.enabled == other.enabled and
+                self.calibration_status == other.calibration_status and
                 self.x == other.x and
                 self.y == other.y and
                 self.x_est == other.x_est and
@@ -144,10 +162,26 @@ class HGantry(Component):
             """
 
             return (
-                f'started={self.started}, enabled={self.enabled}, '
+                f'started={self.started}, enabled={self.enabled}, calibration={self.calibration_status}, '
                 f'x={self.x:.3f}, y={self.y:.3f}, '
                 f'x est.={self.x_est:.3f}, y est.={self.y_est:.3f}'
             )
+
+        def update(
+                self,
+                **kwargs
+        ) -> 'HGantry.State':
+            """
+            Update the current state.
+
+            :param kwargs: New arguments.
+            :return: New state.
+            """
+
+            attributes = self.__dict__
+            attributes.update(kwargs)
+
+            return HGantry.State(**attributes)
 
     class Command(IntEnum):
         """
@@ -221,18 +255,14 @@ class HGantry(Component):
         self.cart_width_mm = 50.0
         self.cart_depth_mm = 50.0
 
-        enabled = True
         if os.path.exists(self.state_path):
             logging.info(f'Loading state from file:  {self.state_path}')
-            with open(self.state_path, 'r') as f:
-                state = json.loads(f.read())
-            for attribute, value in state.items():
-                if attribute == 'enabled':
-                    enabled = value
-                    logging.info(f'Loaded enabled state:  {enabled}')
-                else:
-                    setattr(self, attribute, value)
-            logging.info(f'State loaded. Position=({self.x:.3f},{self.y:.3f})')
+            with open(self.state_path, 'rb') as f:
+                loaded_state = pickle.load(f)
+            for attribute, value in loaded_state['attributes'].items():
+                setattr(self, attribute, value)
+            state: HGantry.State = loaded_state['state']
+            logging.info(f'State loaded:  {state}')
         else:
             logging.info(f'No state file exists:  {self.state_path}')
             self.x = 0.0
@@ -240,6 +270,12 @@ class HGantry(Component):
             self.left_right_mm = 0.0
             self.bottom_top_mm = 0.0
             self.move_idx = 1  # the arduino driver uses idx 0 as a special "not driving" value
+            state = HGantry.State(
+                False, True, HGantry.CalibrationStatus.NONE, self.x, self.y, self.x, self.y
+            )
+            logging.info(f'State initialized:  {state}')
+
+        super().__init__(state)
 
         # synchronize driver indices with gantry move index
         self.left_driver.idx = self.move_idx
@@ -256,10 +292,6 @@ class HGantry(Component):
         self.actual_y = self.y  # self.y reflects pending moves, whereas self.actual_y reflects completed moves.
         self.move_lock = RLock()
         self.driver_read_lock = Lock()
-
-        super().__init__(HGantry.State(
-            False, enabled, self.actual_x, self.actual_y, self.actual_x, self.actual_y
-        ))
 
         # create an a/d converter for the joystick and rescale the digital outputs to be in a range. report all state
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
@@ -395,8 +427,7 @@ class HGantry(Component):
         self.arduino_serial.manual_buffer = True
         self.pump_clock.start()
 
-        state: HGantry.State = self.state
-        self.set_state(HGantry.State(True, state.enabled, state.x, state.y, state.x_est, state.y_est))
+        self.set_state(cast(HGantry.State, self.state).update(started=True))
 
     def stop(
             self,
@@ -420,23 +451,36 @@ class HGantry(Component):
         self.left_stepper.stop()
         self.right_stepper.stop()
 
+        state = cast(HGantry.State, self.state).update(started=False)
+        self.set_state(state)
+
         if save_state:
             logging.info(f'Saving state to file:  {self.state_path}')
-            with open(self.state_path, 'w') as f:
+            with open(self.state_path, 'wb') as f:
                 with self.move_lock:
-                    f.write(json.dumps({
-                        'x': self.x,
-                        'y': self.y,
-                        'left_right_mm': self.left_right_mm,
-                        'bottom_top_mm': self.bottom_top_mm,
-                        'enabled': self.enabled(),
-                        'move_idx': self.move_idx
-                    }))
+                    pickle.dump({
+                        'attributes': {
+                            'x': self.x,
+                            'y': self.y,
+                            'left_right_mm': self.left_right_mm,
+                            'bottom_top_mm': self.bottom_top_mm,
+                            'move_idx': self.move_idx
+                        },
+                        'state': state
+                    }, f)  # type: ignore
         else:
             logging.warning('Not saving gantry state.')
 
-        state: HGantry.State = self.state
-        self.set_state(HGantry.State(False, state.enabled, state.x, state.y, state.x_est, state.y_est))
+    def started(
+            self
+    ) -> bool:
+        """
+        Get whether the gantry has been started.
+
+        :return: True if started and False otherwise.
+        """
+
+        return cast(HGantry.State, self.state).started
 
     def move_to_home_limit(
             self,
@@ -546,6 +590,8 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
+        self.set_state(cast(HGantry.State, self.state).update(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
+
         move_distance_mm = 200.0
         limit_switch_buffer_mm = 5.0
 
@@ -567,8 +613,21 @@ class HGantry(Component):
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
+        self.set_state(cast(HGantry.State, self.state).update(calibration_status=HGantry.CalibrationStatus.CALIBRATED))
+
         self.clear_point_history()
         self.completed_move_points = [(self.x, self.y)]
+
+    def get_calibration_status(
+            self
+    ) -> 'HGantry.CalibrationStatus':
+        """
+        Get calibration status.
+
+        :return: Status.
+        """
+
+        return cast(HGantry.State, self.state).calibration_status
 
     def get_move_to(
             self,
@@ -666,6 +725,14 @@ class HGantry(Component):
         hitting a limit switch; False if limit switch was hit before move was completed.
         """
 
+        if not self.started():
+            raise ValueError('Gantry has not been started. Cannot move.')
+
+        if self.get_calibration_status() not in [
+            HGantry.CalibrationStatus.CALIBRATING, HGantry.CalibrationStatus.CALIBRATED
+        ]:
+            raise ValueError('Cannot move unless calibrating or calibrated.')
+
         with self.move_lock:
 
             if check_bounds:
@@ -750,8 +817,8 @@ class HGantry(Component):
         Set the current state using the estimated location.
         """
 
-        state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, state.enabled, state.x, state.y, *self.estimate_current_location()))
+        x_est, y_est = self.estimate_current_location()
+        self.set_state(cast(HGantry.State, self.state).update(x_est=x_est, y_est=y_est))
 
     def estimate_current_location(
             self,
@@ -1051,10 +1118,7 @@ class HGantry(Component):
                         self.actual_y += move.move_y_mm - skipped_y_mm
 
                         # set the state with the actual values
-                        state: HGantry.State = self.state
-                        self.set_state(HGantry.State(
-                            state.started, state.enabled, self.actual_x, self.actual_y, state.x_est, state.y_est
-                        ))
+                        self.set_state(cast(HGantry.State, self.state).update(x=self.actual_x, y=self.actual_y))
 
                         self.completed_move_points.append((self.actual_x, self.actual_y))
 
@@ -1460,8 +1524,7 @@ class HGantry(Component):
         Enable the gantry. Moves will be executed and state will be updated.
         """
 
-        state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, True, state.x, state.y, state.x_est, state.y_est))
+        self.set_state(cast(HGantry.State, self.state).update(enabled=True))
 
     def disable(
             self
@@ -1471,8 +1534,7 @@ class HGantry(Component):
         executed, and the state will not be updated.
         """
 
-        state: HGantry.State = self.state
-        self.set_state(HGantry.State(state.started, False, state.x, state.y, state.x_est, state.y_est))
+        self.set_state(cast(HGantry.State, self.state).update(enabled=False))
 
     def enabled(
             self
@@ -1483,8 +1545,7 @@ class HGantry(Component):
         :return: True if enabled.
         """
 
-        state: HGantry.State = self.state
-        return state.enabled
+        return cast(HGantry.State, self.state).enabled
 
     def get_fifo_moves(
             self

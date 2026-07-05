@@ -87,11 +87,14 @@ def update_led_strip_on_gantry_update(
     :param gantry_state: Gantry state.
     """
 
-    if gantry.left_right_mm > 0.0 and gantry.bottom_top_mm > 0.0:
+    # the position is only accurate when calibrated. show if calibrated and turn off otherwise.
+    if gantry.get_calibration_status() == HGantry.CalibrationStatus.CALIBRATED:
         try:
             led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.GREEN)
         except LedStrip.InvalidPixelError as e:
             logging.error(f'Error while setting LED strip:  {e}')
+    else:
+        led_strip.turn_off()
 
 gantry.event(update_led_strip_on_gantry_update)
 
