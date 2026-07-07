@@ -71,7 +71,7 @@ gantry = HGantry(
     top_limit_switch_arduino_pin=12,
     arduino_serial=locking_serial,
     timing_pulley_dia_mm=12.97,
-    state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
+    state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle')
 )
 gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 

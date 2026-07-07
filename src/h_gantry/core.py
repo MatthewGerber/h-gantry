@@ -26,6 +26,12 @@ from raspberry_py.rest.application import RpyFlask, CallImageBytes, BLANK_JPEG_B
 from raspberry_py.utils import get_base_64_str
 
 
+class UncalibratedError(ValueError):
+    """
+    Error raised when attempting to move an uncalibrated gantry.
+    """
+
+
 class Move:
     """
     Move record for gantry.
@@ -368,7 +374,7 @@ class HGantry(Component):
 
         # center on joystick press
         if joystick_state.z:
-            self.center(100.0, True, True)
+            self.center(100.0, True)
 
         else:
 
@@ -390,7 +396,6 @@ class HGantry(Component):
                                 self.joystick_max_speed_mm_per_sec -
                                 self.joystick_min_speed_mm_per_sec
                             ) * (joystick_magnitude * 2.0 - 1.0),
-                            True,
                             True
                         )
                     except ValueError as e:
@@ -440,7 +445,10 @@ class HGantry(Component):
         """
 
         # process the buffer to obtain current x/y position
-        self.clear_move_buffer()
+        try:
+            self.clear_move_buffer()
+        except UncalibratedError:
+            logging.error('Tried to clear move buffer when stopping, but gantry is uncalibrated.')
 
         # stop pumping and switch to automatic buffering to stop the steppers
         self.pump_clock.stop()
@@ -580,19 +588,19 @@ class HGantry(Component):
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
+        self.move_to_offset(limit_switch_buffer_mm, 0.0, mm_per_sec, True)
         left_x = self.x
         self.move_to_right_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(-limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
+        self.move_to_offset(-limit_switch_buffer_mm, 0.0, mm_per_sec, True)
         right_x = self.x
         self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
         self.move_to_bottom_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(0.0, limit_switch_buffer_mm, mm_per_sec, True, False)
+        self.move_to_offset(0.0, limit_switch_buffer_mm, mm_per_sec, True)
         bottom_y = self.y
         self.move_to_top_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(0.0, -limit_switch_buffer_mm, mm_per_sec, True, False)
+        self.move_to_offset(0.0, -limit_switch_buffer_mm, mm_per_sec, True)
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
@@ -712,7 +720,7 @@ class HGantry(Component):
         if self.get_calibration_status() not in [
             HGantry.CalibrationStatus.CALIBRATING, HGantry.CalibrationStatus.CALIBRATED
         ]:
-            raise ValueError('Cannot move unless calibrating or calibrated.')
+            raise UncalibratedError('Cannot move unless calibrating or calibrated.')
 
         # when we're calibrating, we intentionally move in ways that test the boundaries of the gantry. don't check
         # bounds when calibrating.
@@ -1121,7 +1129,7 @@ class HGantry(Component):
         final move.
         """
 
-        return self.move_to_offset(0.0, 0.0, 1.0, True, False)
+        return self.move_to_offset(0.0, 0.0, 1.0, True)
 
     def clear_point_history(
             self
@@ -1241,13 +1249,13 @@ class HGantry(Component):
         self.pump_clock.stop()
 
         # move by offset until we hit a limit switch
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False):
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True):
             pass
 
         # back away from the switch in 2mm steps until we can move the offset direction by 1mm
         else:
-            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True, False):
-                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True, False)
+            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True):
+                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True)
 
             self.clear_move_buffer()
 
@@ -1452,7 +1460,7 @@ class HGantry(Component):
             nonlocal curr_x_mm
             nonlocal curr_y_mm
 
-            self.move_to_point(x_mm, y_mm, mm_per_sec, True, False)
+            self.move_to_point(x_mm, y_mm, mm_per_sec, True)
 
             with self.move_lock:
                 curr_x_mm, curr_y_mm = self.x, self.y
@@ -1482,7 +1490,7 @@ class HGantry(Component):
 
             wipe_left_to_right = not wipe_left_to_right
 
-        return self.center(mm_per_sec, block, False)
+        return self.center(mm_per_sec, block)
 
     def enable(
             self
