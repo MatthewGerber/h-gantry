@@ -482,39 +482,22 @@ class HGantry(Component):
 
         return cast(HGantry.State, self.state).started
 
-    def move_to_home_limit(
-            self,
-            step_distance_mm: float,
-            mm_per_sec: float
-    ):
-        """
-        Home the gantry to the left-bottom corner.
-
-        :param step_distance_mm: Distance (+mm) of each step toward the limit.
-        :param mm_per_sec: Speed.
-        """
-
-        self.move_to_left_limit(step_distance_mm, mm_per_sec)
-        self.move_to_bottom_limit(step_distance_mm, mm_per_sec)
-
     def center(
             self,
             mm_per_sec: float,
-            block: bool,
-            check_bounds: bool
+            block: bool
     ) -> Optional[CallImageBytes]:
         """
         Center the gantry.
 
         :param mm_per_sec: Speed.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
         drawing to complete.
         """
 
         logging.info('Centering gantry.')
-        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block, check_bounds)
+        self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block)
 
         # we can only return an image of the drawing if we blocked and waited for it to complete
         if block:
@@ -709,8 +692,7 @@ class HGantry(Component):
             x: float,
             y: float,
             mm_per_sec: float,
-            block: bool,
-            check_bounds: bool
+            block: bool
     ) -> Optional[bool]:
         """
         Move to a point.
@@ -720,7 +702,6 @@ class HGantry(Component):
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete. If True, then the move (and all pending moves)
         will be completed, and the return value will be non-None. If False, then the return value will be None.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: None if `block` is False and non-None if True. When non-None:  True if move was completed without
         hitting a limit switch; False if limit switch was hit before move was completed.
         """
@@ -733,10 +714,12 @@ class HGantry(Component):
         ]:
             raise ValueError('Cannot move unless calibrating or calibrated.')
 
-        with self.move_lock:
+        # when we're calibrating, we intentionally move in ways that test the boundaries of the gantry. don't check
+        # bounds when calibrating.
+        if self.get_calibration_status() != HGantry.CalibrationStatus.CALIBRATING:
+            self.assert_point_in_bounds(x, y)
 
-            if check_bounds:
-                self.assert_point_in_bounds(x, y)
+        with self.move_lock:
 
             # if disabled, then add to point history but do nothing else.
             if not self.enabled():
@@ -1186,7 +1169,6 @@ class HGantry(Component):
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool,
             ignore_moves_shorter_than_mm: float
     ):
         """
@@ -1195,13 +1177,9 @@ class HGantry(Component):
         :param points: Points.
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :param return_to_current_position: Whether to return to the current position after moving to the points.
         """
-
-        if check_bounds:
-            all(self.assert_point_in_bounds(x, y) for x, y in points)
 
         with self.move_lock:
             original_x, original_y = self.x, self.y
@@ -1214,10 +1192,10 @@ class HGantry(Component):
                 logging.debug(f'Skipping non-move point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
             else:
                 logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
-                self.move_to_point(x, y, mm_per_sec, False, check_bounds)
+                self.move_to_point(x, y, mm_per_sec, False)
 
         if return_to_current_position:
-            self.move_to_point(original_x, original_y, mm_per_sec, False, check_bounds)
+            self.move_to_point(original_x, original_y, mm_per_sec, False)
 
         if block:
             self.clear_move_buffer()
@@ -1227,8 +1205,7 @@ class HGantry(Component):
             x_offset_mm: float,
             y_offset_mm: float,
             mm_per_sec: float,
-            block: bool,
-            check_bounds: bool
+            block: bool
     ) -> Optional[bool]:
         """
         Move to an offset from the current position.
@@ -1237,7 +1214,6 @@ class HGantry(Component):
         :param y_offset_mm: Y offset.
         :param mm_per_sec: Speed in mm per second.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
         achieved. Will be None if the move was buffered and not completed.
         """
@@ -1245,7 +1221,7 @@ class HGantry(Component):
         with self.move_lock:
             x, y = self.x, self.y
 
-        return self.move_to_point(x + x_offset_mm, y + y_offset_mm, mm_per_sec, block, check_bounds)
+        return self.move_to_point(x + x_offset_mm, y + y_offset_mm, mm_per_sec, block)
 
     def move_to_offset_limit(
             self,
@@ -1287,7 +1263,6 @@ class HGantry(Component):
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool,
             ignore_moves_shorter_than_mm: float
     ) -> Optional[CallImageBytes]:
         """
@@ -1301,7 +1276,6 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
         drawing to complete.
@@ -1329,7 +1303,6 @@ class HGantry(Component):
             mm_per_sec,
             return_to_current_position,
             block,
-            check_bounds,
             ignore_moves_shorter_than_mm
         )
 
@@ -1348,7 +1321,6 @@ class HGantry(Component):
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool,
             ignore_moves_shorter_than_mm: float
     ) -> _Trochoid:
         """
@@ -1359,7 +1331,6 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :return: Resulting spirograph, which might be scaled and translated.
         """
@@ -1387,7 +1358,6 @@ class HGantry(Component):
             mm_per_sec,
             return_to_current_position,
             block,
-            check_bounds,
             ignore_moves_shorter_than_mm
         )
 
@@ -1401,7 +1371,6 @@ class HGantry(Component):
             mm_per_sec: float,
             return_to_current_position: bool,
             block: bool,
-            check_bounds: bool,
             ignore_moves_shorter_than_mm: float
     ) -> Optional[CallImageBytes]:
         """
@@ -1413,7 +1382,6 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         :param return_to_current_position: Whether to return to current position.
         :param block: Whether to block until the movement is complete.
-        :param check_bounds: Whether to check bounds of the point. Raises an exception if check fails.
         :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
         :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
         drawing to complete.
@@ -1440,7 +1408,6 @@ class HGantry(Component):
             mm_per_sec,
             return_to_current_position,
             block,
-            check_bounds,
             ignore_moves_shorter_than_mm
         )
 
@@ -1715,14 +1682,6 @@ class HGantry(Component):
             True
         )
 
-        spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element = RpyFlask.get_switch(
-            'spiro-check_bounds',
-            None,
-            None,
-            'Check bounds',
-            True
-        )
-
         spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
             'spiro-ignore_moves_shorter_than_mm',
             'Ignore moves shorter than (mm)',
@@ -1739,7 +1698,6 @@ class HGantry(Component):
             ('mm_per_sec', float, spiro_mm_per_sec_textbox_id),
             ('return_to_current_position', bool, spiro_return_switch_id),
             ('block', bool, spiro_block_switch_id),
-            ('check_bounds', bool, spiro_check_bounds_switch_id),
             ('ignore_moves_shorter_than_mm', float, spiro_ignore_moves_textbox_id)
         ]
 
@@ -1788,14 +1746,6 @@ class HGantry(Component):
             True
         )
 
-        spiral_check_bounds_switch_id, spiral_check_bounds_switch_ui_element = RpyFlask.get_switch(
-            'spiral-check_bounds',
-            None,
-            None,
-            'Check bounds',
-            True
-        )
-
         spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
             'spiral-ignore_moves_shorter_than_mm',
             'Ignore moves shorter than (mm)',
@@ -1810,7 +1760,6 @@ class HGantry(Component):
             ('mm_per_sec', float, spiral_mm_per_sec_textbox_id),
             ('return_to_current_position', bool, spiral_return_switch_id),
             ('block', bool, spiral_block_switch_id),
-            ('check_bounds', bool, spiral_check_bounds_switch_id),
             ('ignore_moves_shorter_than_mm', float, spiral_ignore_moves_textbox_id)
         ]
 
@@ -1819,11 +1768,11 @@ class HGantry(Component):
 
         return [
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
-            RpyFlask.get_button(self.id, self.center, {**add_to_history, 'mm_per_sec': 100.0, 'block': True, 'check_bounds': False}, None, None, None, None, 'Center'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '<', 'left'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '>', 'right'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, '^', 'up'),
-            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False, 'check_bounds': True}, None, None, None, None, 'v', 'down'),
+            RpyFlask.get_button(self.id, self.center, {**add_to_history, 'mm_per_sec': 100.0, 'block': True}, None, None, None, None, 'Center'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False}, None, None, None, None, '<', 'left'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0, 'block': False}, None, None, None, None, '>', 'right'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': 10.0, 'mm_per_sec': 100.0, 'block': False}, None, None, None, None, '^', 'up'),
+            RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history, 'x_offset_mm': 0.0, 'y_offset_mm': -10.0, 'mm_per_sec': 100.0, 'block': False}, None, None, None, None, 'v', 'down'),
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1.0), None, 1.0),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
             RpyFlask.get_button(self.id, self.clear_move_buffer, None, None, None, None, None, 'Clear Move Buffer'),
@@ -1843,7 +1792,6 @@ class HGantry(Component):
             (spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element),
             (spiro_return_switch_id, spiro_return_switch_ui_element),
             (spiro_block_switch_id, spiro_block_switch_ui_element),
-            (spiro_check_bounds_switch_id, spiro_check_bounds_switch_ui_element),
 
             RpyFlask.get_button(self.id, self.draw_spiral, add_to_history, draw_spiral_dyn_args, None, None, None, 'Draw'),
             (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
@@ -1852,7 +1800,6 @@ class HGantry(Component):
             (spiral_mm_per_sec_textbox_id, spiral_mm_per_sec_textbox_ui_element),
             (spiral_return_switch_id, spiral_return_switch_ui_element),
             (spiral_block_switch_id, spiral_block_switch_ui_element),
-            (spiral_check_bounds_switch_id, spiral_check_bounds_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
 
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
