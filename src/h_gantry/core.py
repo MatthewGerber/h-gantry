@@ -305,9 +305,10 @@ class HGantry(Component):
         # to the arduino.
         joystick_y_ad_channel = 0
         joystick_x_ad_channel = 1
+        self.adc_bus_path = '/dev/i2c-1'
         self.adc = ADS7830(
             input_voltage=3.3,
-            bus=SMBus('/dev/i2c-1'),
+            bus=SMBus(),
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
@@ -425,6 +426,7 @@ class HGantry(Component):
         if not limit_switches_inited:
             raise ValueError('Failed to initialize Arduino limit switches.')
 
+        self.adc.open(self.adc_bus_path)
         self.joystick.start_updating_state(self.joystick_update_interval_seconds)
 
         # switch to manual buffering and start pumping
@@ -439,6 +441,10 @@ class HGantry(Component):
         """
         Stop the gantry.
         """
+
+        if not cast(HGantry.State, self.state).started:
+            logging.info('Gantry already stopped.')
+            return
 
         # process the buffer to obtain current x/y position
         try:
@@ -473,6 +479,7 @@ class HGantry(Component):
                     },
                     'object': state
                 }, f)  # type: ignore
+                logging.info('Saved state.')
 
     def started(
             self
