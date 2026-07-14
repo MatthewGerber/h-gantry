@@ -19,8 +19,6 @@ setup(gpio.BCM)
 STEPPER_FULL_STEPS_PER_REVOLUTION = 200
 STEPPER_OUTPUT_ROTOR_RATIO = 1.0 / 1.0
 
-logging.basicConfig(level=logging.INFO)
-
 locking_serial = LockingSerial(
     connection=Serial(
         port='/dev/serial0',
@@ -71,13 +69,16 @@ gantry = HGantry(
     top_limit_switch_arduino_pin=12,
     arduino_serial=locking_serial,
     timing_pulley_dia_mm=12.97,
-    state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
+    state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle')
 )
+gantry.id = 'gantry-1'
+app.add_component(gantry)
+
 gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 
+# configure lighting as an event on the gantry state change
 pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 288 - 15, brightness=0.1, auto_write=False)
 led_strip = FrameLedStrip(pixels, 7.0, 482.6, 482.6)
-
 def update_led_strip_on_gantry_update(
         gantry_state: HGantry.State
 ):
@@ -98,11 +99,6 @@ def update_led_strip_on_gantry_update(
 
 gantry.event(update_led_strip_on_gantry_update)
 
-gantry.id = 'gantry-1'
-gantry.start()
-
-app.add_component(gantry)
-
 def on_exit():
     """
     Clean up, save state, etc.
@@ -111,3 +107,5 @@ def on_exit():
     gantry.stop(True)
 
 app.register_on_exit_callback(on_exit)
+
+gantry.start()

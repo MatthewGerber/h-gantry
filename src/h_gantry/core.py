@@ -22,8 +22,14 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
-from raspberry_py.rest.application import RpyFlask, CallImageBytes, BLANK_JPEG_BASE_64_STR
+from raspberry_py.rest.application import RpyFlask, CallImageBytes
 from raspberry_py.utils import get_base_64_str
+
+
+class UncalibratedError(ValueError):
+    """
+    Error raised when attempting to move an uncalibrated gantry.
+    """
 
 
 class Move:
@@ -261,7 +267,7 @@ class HGantry(Component):
                 loaded_state = pickle.load(f)
             for attribute, value in loaded_state['attributes'].items():
                 setattr(self, attribute, value)
-            state: HGantry.State = loaded_state['state']
+            state: HGantry.State = loaded_state['object']
             logging.info(f'State loaded:  {state}')
         else:
             logging.info(f'No state file exists:  {self.state_path}')
@@ -331,7 +337,6 @@ class HGantry(Component):
 
         # plotting
         self.plot_lock = Lock()
-        self.curr_line_plot_base64_str = BLANK_JPEG_BASE_64_STR
 
         # blocking movements will wait for all moves to come back from the arduino, but non-blocking movements will not
         # wait. in the latter case, we need a separate signal that periodically sends/receives moves to/from the
@@ -368,7 +373,7 @@ class HGantry(Component):
 
         # center on joystick press
         if joystick_state.z:
-            self.center(100.0, True, True)
+            self.center(100.0, True)
 
         else:
 
@@ -390,7 +395,6 @@ class HGantry(Component):
                                 self.joystick_max_speed_mm_per_sec -
                                 self.joystick_min_speed_mm_per_sec
                             ) * (joystick_magnitude * 2.0 - 1.0),
-                            True,
                             True
                         )
                     except ValueError as e:
@@ -440,7 +444,10 @@ class HGantry(Component):
         """
 
         # process the buffer to obtain current x/y position
-        self.clear_move_buffer()
+        try:
+            self.clear_move_buffer()
+        except UncalibratedError:
+            logging.error('Tried to clear move buffer when stopping, but gantry is uncalibrated.')
 
         # stop pumping and switch to automatic buffering to stop the steppers
         self.pump_clock.stop()
@@ -454,6 +461,8 @@ class HGantry(Component):
         state = cast(HGantry.State, self.state).update(started=False)
         self.set_state(state)
 
+        # save the gantry state, which is a combination of attributes on the current python object, plus the
+        # raspberry-py state object.
         if save_state:
             logging.info(f'Saving state to file:  {self.state_path}')
             with open(self.state_path, 'wb') as f:
@@ -466,7 +475,7 @@ class HGantry(Component):
                             'bottom_top_mm': self.bottom_top_mm,
                             'move_idx': self.move_idx
                         },
-                        'state': state
+                        'object': state
                     }, f)  # type: ignore
         else:
             logging.warning('Not saving gantry state.')
@@ -575,24 +584,24 @@ class HGantry(Component):
 
         self.set_state(cast(HGantry.State, self.state).update(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
 
-        move_distance_mm = 200.0
+        move_distance_mm = 500.0
         limit_switch_buffer_mm = 5.0
 
         # measure distance between horizontal limits, and set actual x position.
         self.move_to_left_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
+        self.move_to_offset(limit_switch_buffer_mm, 0.0, mm_per_sec, True)
         left_x = self.x
         self.move_to_right_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(-limit_switch_buffer_mm, 0.0, mm_per_sec, True, False)
+        self.move_to_offset(-limit_switch_buffer_mm, 0.0, mm_per_sec, True)
         right_x = self.x
         self.left_right_mm = self.actual_x = self.x = right_x - left_x
 
         # measure distance between vertical limits, and set actual y position.
         self.move_to_bottom_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(0.0, limit_switch_buffer_mm, mm_per_sec, True, False)
+        self.move_to_offset(0.0, limit_switch_buffer_mm, mm_per_sec, True)
         bottom_y = self.y
         self.move_to_top_limit(move_distance_mm, mm_per_sec)
-        self.move_to_offset(0.0, -limit_switch_buffer_mm, mm_per_sec, True, False)
+        self.move_to_offset(0.0, -limit_switch_buffer_mm, mm_per_sec, True)
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
@@ -712,7 +721,7 @@ class HGantry(Component):
         if self.get_calibration_status() not in [
             HGantry.CalibrationStatus.CALIBRATING, HGantry.CalibrationStatus.CALIBRATED
         ]:
-            raise ValueError('Cannot move unless calibrating or calibrated.')
+            raise UncalibratedError('Cannot move unless calibrating or calibrated.')
 
         # when we're calibrating, we intentionally move in ways that test the boundaries of the gantry. don't check
         # bounds when calibrating.
@@ -931,7 +940,7 @@ class HGantry(Component):
 
                 self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
 
-                logging.info(
+                logging.debug(
                     f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
                     f'remain in Python.'
                 )
@@ -987,7 +996,7 @@ class HGantry(Component):
         # get result for each stepper. the drivers are asynchronous, and so the results will come back in an
         # unpredictable order. however, the result tuples have the stepper identifier as the first element,
         # so we can key on that to obtain the result for each stepper.
-        logging.info('Reading move response from Arduino driver.')
+        logging.debug('Reading move response from Arduino driver.')
         stepper_id_skipped_steps_idx = {
             stepper_id: (skipped_steps, idx)
             for stepper_id, skipped_steps, idx in [
@@ -1121,7 +1130,7 @@ class HGantry(Component):
         final move.
         """
 
-        return self.move_to_offset(0.0, 0.0, 1.0, True, False)
+        return self.move_to_offset(0.0, 0.0, 1.0, True)
 
     def clear_point_history(
             self
@@ -1132,6 +1141,7 @@ class HGantry(Component):
 
         with self.move_lock:
             self.completed_move_points.clear()
+            self.completed_move_points = [(self.x, self.y)]
 
     def get_x_mm_y_mm_from_steps(
             self,
@@ -1241,13 +1251,13 @@ class HGantry(Component):
         self.pump_clock.stop()
 
         # move by offset until we hit a limit switch
-        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True, False):
+        while self.move_to_offset(x_offset_mm, y_offset_mm, mm_per_sec, True):
             pass
 
         # back away from the switch in 2mm steps until we can move the offset direction by 1mm
         else:
-            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True, False):
-                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True, False)
+            while not self.move_to_offset(np.sign(x_offset_mm), np.sign(y_offset_mm), mm_per_sec, True):
+                self.move_to_offset(2.0 * -np.sign(x_offset_mm), 2.0 * -np.sign(y_offset_mm), mm_per_sec, True)
 
             self.clear_move_buffer()
 
@@ -1387,11 +1397,13 @@ class HGantry(Component):
         drawing to complete.
         """
 
-        radius = outer_diameter_mm / 2.0
-        turn_count = radius / loop_spacing_mm
+        radius_mm = outer_diameter_mm / 2.0
+        turn_count = radius_mm / loop_spacing_mm
         turn_radians = turn_count * 2.0 * math.pi
         step_radians = math.radians(step_degrees)
         loop_spacing_mm_per_radian = loop_spacing_mm / (2.0 * math.pi)
+
+        logging.info(f'Drawing spiral:  r={radius_mm} mm, turns={turn_count}, loop spacing={loop_spacing_mm} mm')
 
         with self.move_lock:
             center_x, center_y = self.x, self.y
@@ -1435,6 +1447,8 @@ class HGantry(Component):
         drawing to complete.
         """
 
+        logging.info(f'Wiping:  y spacing={y_spacing_mm} mm')
+
         with self.move_lock:
             curr_x_mm, curr_y_mm = self.x, self.y
 
@@ -1452,18 +1466,18 @@ class HGantry(Component):
             nonlocal curr_x_mm
             nonlocal curr_y_mm
 
-            self.move_to_point(x_mm, y_mm, mm_per_sec, True, False)
+            self.move_to_point(x_mm, y_mm, mm_per_sec, True)
 
             with self.move_lock:
                 curr_x_mm, curr_y_mm = self.x, self.y
 
-        bottom_top_half_mm = (self.bottom_top_mm / 2.0)
+        half_of_bottom_top_mm = self.bottom_top_mm / 2.0
 
         move(0.0, curr_y_mm)
         wipe_left_to_right = True
 
         # wipe bottom-up halfway
-        for wipe_y_mm in np.arange(0.0, bottom_top_half_mm + y_spacing_mm, y_spacing_mm):
+        for wipe_y_mm in np.arange(0.0, half_of_bottom_top_mm + y_spacing_mm, y_spacing_mm):
             move(curr_x_mm, wipe_y_mm)
             if wipe_left_to_right:
                 move(self.left_right_mm, wipe_y_mm)
@@ -1473,7 +1487,7 @@ class HGantry(Component):
             wipe_left_to_right = not wipe_left_to_right
 
         # wipe top down
-        for wipe_y_mm in np.arange(self.bottom_top_mm, bottom_top_half_mm - y_spacing_mm, -y_spacing_mm):
+        for wipe_y_mm in np.arange(self.bottom_top_mm, half_of_bottom_top_mm - y_spacing_mm, -y_spacing_mm):
             move(curr_x_mm, wipe_y_mm)
             if wipe_left_to_right:
                 move(self.left_right_mm, wipe_y_mm)
@@ -1482,7 +1496,7 @@ class HGantry(Component):
 
             wipe_left_to_right = not wipe_left_to_right
 
-        return self.center(mm_per_sec, block, False)
+        return self.center(mm_per_sec, block)
 
     def enable(
             self
@@ -1530,7 +1544,7 @@ class HGantry(Component):
             self
     ) -> str:
         """
-        Get line plot for the gantry.
+        Get line plot for the gantry. Will block until exclusive plotting access is obtained.
 
         :return: Base-64 encoded image of line plot.
         """
@@ -1539,51 +1553,47 @@ class HGantry(Component):
             completed_move_points = self.completed_move_points.copy()
             pending_moves = self.get_fifo_moves()
 
-        plot_lock_acquired = self.plot_lock.acquire(blocking=False)
-        if plot_lock_acquired:
-            try:
-                plt.plot(
-                    *zip(*completed_move_points),
-                    linestyle='-',
-                    marker='.',
-                    markersize=0.05,
-                    label='Completed'
-                )
-                plt.plot(
-                    *zip(
-                        *[
-                            (m.to_x_mm, m.to_y_mm)
-                            for m in pending_moves
-                        ]
-                    ),
-                    linestyle='-',
-                    marker='o',
-                    fillstyle='none',
-                    alpha=0.5,
-                    label='Future'
-                )
-                plotted = len(completed_move_points) + len(pending_moves) > 0
-                plt.gcf().set_size_inches(8.0, 8.0)
-                plt.gca().set_aspect('equal')
-                plt.grid()
-                if plotted:
-                    plt.legend()
-                plt.xlim(-5.0, self.left_right_mm + 5.0)
-                plt.ylim(-5.0, self.bottom_top_mm + 5.0)
-                plt.xlabel('mm')
-                plt.ylabel('mm')
-                plt.tight_layout()
+        # need exclusive access to plotting to prevent concurrent calls from interfering with each other
+        with self.plot_lock:
+            plt.plot(
+                *zip(*completed_move_points),
+                linestyle='-',
+                marker='.',
+                markersize=0.05,
+                label='Completed'
+            )
+            plt.plot(
+                *zip(
+                    *[
+                        (m.to_x_mm, m.to_y_mm)
+                        for m in pending_moves
+                    ]
+                ),
+                linestyle='-',
+                marker='o',
+                fillstyle='none',
+                alpha=0.5,
+                label='Future'
+            )
+            plotted = len(completed_move_points) + len(pending_moves) > 0
+            plt.gcf().set_size_inches(8.0, 8.0)
+            plt.gca().set_aspect('equal')
+            plt.grid()
+            if plotted:
+                plt.legend()
+            plt.xlim(-5.0, self.left_right_mm + 5.0)
+            plt.ylim(-5.0, self.bottom_top_mm + 5.0)
+            plt.xlabel('mm')
+            plt.ylabel('mm')
+            plt.tight_layout()
 
-                buffer = io.BytesIO()
-                plt.savefig(buffer, format='jpeg', bbox_inches='tight')
-                plt.close()
-                buffer.seek(0)
-                self.curr_line_plot_base64_str = get_base_64_str(buffer.getvalue())
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='jpeg', bbox_inches='tight')
+            plt.close()
+            buffer.seek(0)
+            line_plot_base64_str = get_base_64_str(buffer.getvalue())
 
-            finally:
-                self.plot_lock.release()
-
-        return self.curr_line_plot_base64_str
+        return line_plot_base64_str
 
     def get_ui_elements(
             self
