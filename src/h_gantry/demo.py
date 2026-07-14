@@ -139,7 +139,7 @@ def main():
     #     5.0
     # )
 
-    gantry.stop(True)
+    gantry.stop()
 
     cleanup()
 

@@ -1,5 +1,6 @@
 import logging
 import os
+from threading import Lock
 
 import RPi.GPIO as gpio
 import microcontroller
@@ -79,6 +80,7 @@ gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 # configure lighting as an event on the gantry state change
 pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 288 - 15, brightness=0.1, auto_write=False)
 led_strip = FrameLedStrip(pixels, 7.0, 482.6, 482.6)
+led_lock = Lock()
 def update_led_strip_on_gantry_update(
         gantry_state: HGantry.State
 ):
@@ -88,24 +90,34 @@ def update_led_strip_on_gantry_update(
     :param gantry_state: Gantry state.
     """
 
-    # the position is only accurate when calibrated. show if calibrated and turn off otherwise.
-    if gantry.get_calibration_status() == HGantry.CalibrationStatus.CALIBRATED:
+    if led_lock.acquire(blocking=False):
         try:
-            led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.GREEN)
+            if (
+                gantry_state.started and
+                gantry_state.enabled and
+                gantry_state.calibration_status == HGantry.CalibrationStatus.CALIBRATED
+            ):
+                led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.GREEN)
+            elif not gantry_state.started:
+                led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.RED)
+            elif not gantry_state.enabled:
+                led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.YELLOW)
+            else:
+                led_strip.turn_off()
         except LedStrip.InvalidPixelError as e:
             logging.error(f'Error while setting LED strip:  {e}')
-    else:
-        led_strip.turn_off()
+        finally:
+            led_lock.release()
 
-gantry.event(update_led_strip_on_gantry_update)
+gantry.event(update_led_strip_on_gantry_update, synchronous=False)
+gantry.start()
 
 def on_exit():
     """
     Clean up, save state, etc.
     """
 
-    gantry.stop(True)
+    gantry.stop()
 
 app.register_on_exit_callback(on_exit)
-
-gantry.start()
+app.start(__name__)

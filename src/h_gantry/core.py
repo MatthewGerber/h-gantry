@@ -173,21 +173,21 @@ class HGantry(Component):
                 f'x est.={self.x_est:.3f}, y est.={self.y_est:.3f}'
             )
 
-        def update(
+        def set(
                 self,
                 **kwargs
         ) -> 'HGantry.State':
             """
-            Update the current state.
+            Set attributes on the current state, returning a copy with the new values.
 
-            :param kwargs: New arguments.
+            :param kwargs: New attributes and values.
             :return: New state.
             """
 
-            attributes = self.__dict__
-            attributes.update(kwargs)
+            new_attributes = self.__dict__.copy()
+            new_attributes.update(kwargs)
 
-            return HGantry.State(**attributes)
+            return HGantry.State(**new_attributes)
 
     class Command(IntEnum):
         """
@@ -431,16 +431,13 @@ class HGantry(Component):
         self.arduino_serial.manual_buffer = True
         self.pump_clock.start()
 
-        self.set_state(cast(HGantry.State, self.state).update(started=True))
+        self.set_state(cast(HGantry.State, self.state).set(started=True))
 
     def stop(
-            self,
-            save_state: bool
+            self
     ):
         """
         Stop the gantry.
-
-        :param save_state: Whether to save the gantry's state after stopping.
         """
 
         # process the buffer to obtain current x/y position
@@ -458,27 +455,24 @@ class HGantry(Component):
         self.left_stepper.stop()
         self.right_stepper.stop()
 
-        state = cast(HGantry.State, self.state).update(started=False)
+        state = cast(HGantry.State, self.state).set(started=False)
         self.set_state(state)
 
         # save the gantry state, which is a combination of attributes on the current python object, plus the
         # raspberry-py state object.
-        if save_state:
-            logging.info(f'Saving state to file:  {self.state_path}')
-            with open(self.state_path, 'wb') as f:
-                with self.move_lock:
-                    pickle.dump({
-                        'attributes': {
-                            'x': self.x,
-                            'y': self.y,
-                            'left_right_mm': self.left_right_mm,
-                            'bottom_top_mm': self.bottom_top_mm,
-                            'move_idx': self.move_idx
-                        },
-                        'object': state
-                    }, f)  # type: ignore
-        else:
-            logging.warning('Not saving gantry state.')
+        logging.info(f'Saving state to file:  {self.state_path}')
+        with open(self.state_path, 'wb') as f:
+            with self.move_lock:
+                pickle.dump({
+                    'attributes': {
+                        'x': self.x,
+                        'y': self.y,
+                        'left_right_mm': self.left_right_mm,
+                        'bottom_top_mm': self.bottom_top_mm,
+                        'move_idx': self.move_idx
+                    },
+                    'object': state
+                }, f)  # type: ignore
 
     def started(
             self
@@ -582,7 +576,7 @@ class HGantry(Component):
         :param mm_per_sec: Speed.
         """
 
-        self.set_state(cast(HGantry.State, self.state).update(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
+        self.set_state(cast(HGantry.State, self.state).set(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
 
         move_distance_mm = 500.0
         limit_switch_buffer_mm = 5.0
@@ -605,7 +599,7 @@ class HGantry(Component):
         top_y = self.y
         self.bottom_top_mm = self.actual_y = self.y = top_y - bottom_y
 
-        self.set_state(cast(HGantry.State, self.state).update(calibration_status=HGantry.CalibrationStatus.CALIBRATED))
+        self.set_state(cast(HGantry.State, self.state).set(calibration_status=HGantry.CalibrationStatus.CALIBRATED))
 
         self.clear_point_history()
         self.completed_move_points = [(self.x, self.y)]
@@ -810,7 +804,7 @@ class HGantry(Component):
         """
 
         x_est, y_est = self.estimate_current_location()
-        self.set_state(cast(HGantry.State, self.state).update(x_est=x_est, y_est=y_est))
+        self.set_state(cast(HGantry.State, self.state).set(x_est=x_est, y_est=y_est))
 
     def estimate_current_location(
             self,
@@ -1110,7 +1104,7 @@ class HGantry(Component):
                         self.actual_y += move.move_y_mm - skipped_y_mm
 
                         # set the state with the actual values
-                        self.set_state(cast(HGantry.State, self.state).update(x=self.actual_x, y=self.actual_y))
+                        self.set_state(cast(HGantry.State, self.state).set(x=self.actual_x, y=self.actual_y))
 
                         self.completed_move_points.append((self.actual_x, self.actual_y))
 
@@ -1505,7 +1499,7 @@ class HGantry(Component):
         Enable the gantry. Moves will be executed and state will be updated.
         """
 
-        self.set_state(cast(HGantry.State, self.state).update(enabled=True))
+        self.set_state(cast(HGantry.State, self.state).set(enabled=True))
 
     def disable(
             self
@@ -1515,7 +1509,7 @@ class HGantry(Component):
         executed, and the state will not be updated.
         """
 
-        self.set_state(cast(HGantry.State, self.state).update(enabled=False))
+        self.set_state(cast(HGantry.State, self.state).set(enabled=False))
 
     def enabled(
             self
@@ -1812,7 +1806,8 @@ class HGantry(Component):
             (spiral_block_switch_id, spiral_block_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
 
-            RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enable', True)
+            RpyFlask.get_switch(self.id, self.start, self.stop, 'Started', False),
+            RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enabled', True)
         ]
 
 
