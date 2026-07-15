@@ -1625,7 +1625,8 @@ class HGantry(Component):
             None,
             None,
             'Block until complete',
-            True
+            True,
+            None
         )
 
         wipe_dyn_args = [
@@ -1682,7 +1683,8 @@ class HGantry(Component):
             None,
             None,
             'Return to current position',
-            True
+            True,
+            None
         )
 
         spiro_block_switch_id, spiro_block_switch_ui_element = RpyFlask.get_switch(
@@ -1690,7 +1692,8 @@ class HGantry(Component):
             None,
             None,
             'Block until complete',
-            True
+            True,
+            None
         )
 
         spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
@@ -1746,7 +1749,8 @@ class HGantry(Component):
             None,
             None,
             'Return to current position',
-            True
+            True,
+            None
         )
 
         spiral_block_switch_id, spiral_block_switch_ui_element = RpyFlask.get_switch(
@@ -1754,7 +1758,8 @@ class HGantry(Component):
             None,
             None,
             'Block until complete',
-            True
+            True,
+            None
         )
 
         spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
@@ -1813,8 +1818,8 @@ class HGantry(Component):
             (spiral_block_switch_id, spiral_block_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
 
-            RpyFlask.get_switch(self.id, self.start, self.stop, 'Started', False),
-            RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enabled', True)
+            RpyFlask.get_switch(self.id, self.start, self.stop, 'Started', False, (self.started, timedelta(seconds=1))),
+            RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enabled', False, (self.enabled, timedelta(seconds=1)))
         ]
 
 
