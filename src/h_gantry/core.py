@@ -26,6 +26,9 @@ from raspberry_py.rest.application import RpyFlask, CallImageBytes
 from raspberry_py.utils import get_base_64_str
 
 
+logger = logging.getLogger(__name__)
+
+
 class UncalibratedError(ValueError):
     """
     Error raised when attempting to move an uncalibrated gantry.
@@ -262,15 +265,15 @@ class HGantry(Component):
         self.cart_depth_mm = 50.0
 
         if os.path.exists(self.state_path):
-            logging.info(f'Loading state from file:  {self.state_path}')
+            logger.info(f'Loading state from file:  {self.state_path}')
             with open(self.state_path, 'rb') as f:
                 loaded_state = pickle.load(f)
             for attribute, value in loaded_state['attributes'].items():
                 setattr(self, attribute, value)
             state: HGantry.State = loaded_state['object']
-            logging.info(f'State loaded:  {state}')
+            logger.info(f'State loaded:  {state}')
         else:
-            logging.info(f'No state file exists:  {self.state_path}')
+            logger.info(f'No state file exists:  {self.state_path}')
             self.x = 0.0
             self.y = 0.0
             self.left_right_mm = 0.0
@@ -279,7 +282,7 @@ class HGantry(Component):
             state = HGantry.State(
                 False, True, HGantry.CalibrationStatus.NONE, self.x, self.y, self.x, self.y
             )
-            logging.info(f'State initialized:  {state}')
+            logger.info(f'State initialized:  {state}')
 
         super().__init__(state)
 
@@ -356,7 +359,7 @@ class HGantry(Component):
         :param clock_state: State of clock driving the pump.
         """
 
-        logging.debug(f'Pumping:  {clock_state.tick}')
+        logger.debug(f'Pumping:  {clock_state.tick}')
 
         self.send_moves_to_arduino(True)
         self.read_completed_moves_from_arduino(False)
@@ -399,7 +402,7 @@ class HGantry(Component):
                             True
                         )
                     except ValueError as e:
-                        logging.error(f'Failed to move according to joystick:  {e}')
+                        logger.error(f'Failed to move according to joystick:  {e}')
 
     def start(
             self
@@ -443,14 +446,14 @@ class HGantry(Component):
         """
 
         if not cast(HGantry.State, self.state).started:
-            logging.info('Gantry already stopped.')
+            logger.info('Gantry already stopped.')
             return
 
         # process the buffer to obtain current x/y position
         try:
             self.clear_move_buffer()
         except UncalibratedError:
-            logging.error('Tried to clear move buffer when stopping, but gantry is uncalibrated.')
+            logger.error('Tried to clear move buffer when stopping, but gantry is uncalibrated.')
 
         # stop pumping and switch to automatic buffering to stop the steppers
         self.pump_clock.stop()
@@ -466,7 +469,7 @@ class HGantry(Component):
 
         # save the gantry state, which is a combination of attributes on the current python object, plus the
         # raspberry-py state object.
-        logging.info(f'Saving state to file:  {self.state_path}')
+        logger.info(f'Saving state to file:  {self.state_path}')
         with open(self.state_path, 'wb') as f:
             with self.move_lock:
                 pickle.dump({
@@ -479,7 +482,7 @@ class HGantry(Component):
                     },
                     'object': state
                 }, f)  # type: ignore
-                logging.info('Saved state.')
+                logger.info('Saved state.')
 
     def started(
             self
@@ -506,7 +509,7 @@ class HGantry(Component):
         drawing to complete.
         """
 
-        logging.info('Centering gantry.')
+        logger.info('Centering gantry.')
         self.move_to_point(self.left_right_mm / 2.0, self.bottom_top_mm / 2.0, mm_per_sec, block)
 
         # we can only return an image of the drawing if we blocked and waited for it to complete
@@ -941,7 +944,7 @@ class HGantry(Component):
 
                 self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
 
-                logging.debug(
+                logger.debug(
                     f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
                     f'remain in Python.'
                 )
@@ -997,7 +1000,7 @@ class HGantry(Component):
         # get result for each stepper. the drivers are asynchronous, and so the results will come back in an
         # unpredictable order. however, the result tuples have the stepper identifier as the first element,
         # so we can key on that to obtain the result for each stepper.
-        logging.debug('Reading move response from Arduino driver.')
+        logger.debug('Reading move response from Arduino driver.')
         stepper_id_skipped_steps_idx = {
             stepper_id: (skipped_steps, idx)
             for stepper_id, skipped_steps, idx in [
@@ -1010,7 +1013,7 @@ class HGantry(Component):
         with self.move_lock:
             assert move.idx == self.moves_pending_in_arduino[0].idx
             self.moves_pending_in_arduino.popleft()
-            logging.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
+            logger.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
         elapsed_seconds = time() - move.start_time_epoch
         left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
         right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
@@ -1096,7 +1099,7 @@ class HGantry(Component):
                         if succeeded_without_limit is None:
                             succeeded_without_limit = True
                     else:
-                        logging.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
+                        logger.debug(f'Hit limit and skipped:  {skipped_x_mm} mm (x); {skipped_y_mm} mm (y)')
                         succeeded_without_limit = False
 
                     with self.move_lock:
@@ -1200,9 +1203,9 @@ class HGantry(Component):
             distance_mm = self.get_distance_to_point((x, y))
             diff_from_threshold = distance_mm - ignore_moves_shorter_than_mm
             if np.isclose(diff_from_threshold, 0.0) or diff_from_threshold < 0.0:
-                logging.debug(f'Skipping non-move point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
+                logger.debug(f'Skipping non-move point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
             else:
-                logging.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
+                logger.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
                 self.move_to_point(x, y, mm_per_sec, False)
 
         if return_to_current_position:
@@ -1348,11 +1351,11 @@ class HGantry(Component):
 
         if g.max_x - g.min_x > 0.99 * self.left_right_mm:
             g = g.scale(0.99 * self.left_right_mm / (g.max_x - g.min_x))
-            logging.warning('Spirograph x out of bounds. Rescaled.')
+            logger.warning('Spirograph x out of bounds. Rescaled.')
 
         if g.max_y - g.min_y > 0.99 * self.bottom_top_mm:
             g = g.scale(0.99 * self.bottom_top_mm / (g.max_y - g.min_y))
-            logging.warning('Spirograph y out of bounds. Rescaled.')
+            logger.warning('Spirograph y out of bounds. Rescaled.')
 
         center_x, center_y = center
         half_width = (g.max_x - g.min_x) / 2.0
@@ -1360,7 +1363,7 @@ class HGantry(Component):
         half_height = (g.max_y - g.min_y) / 2.0
         bottom_border = center_y - half_height
         g = g.translate(left_border - g.min_x, bottom_border - g.min_y)
-        logging.info(
+        logger.info(
             f'Tracing spirograph within bounds:  ({g.min_x:.3f},{g.min_y:.3f}) (LL) ({g.max_x:.3f},{g.max_y:.3f}) (UR)'
         )
 
@@ -1404,7 +1407,7 @@ class HGantry(Component):
         step_radians = math.radians(step_degrees)
         loop_spacing_mm_per_radian = loop_spacing_mm / (2.0 * math.pi)
 
-        logging.info(f'Drawing spiral:  r={radius_mm} mm, turns={turn_count}, loop spacing={loop_spacing_mm} mm')
+        logger.info(f'Drawing spiral:  r={radius_mm} mm, turns={turn_count}, loop spacing={loop_spacing_mm} mm')
 
         with self.move_lock:
             center_x, center_y = self.x, self.y
@@ -1448,7 +1451,7 @@ class HGantry(Component):
         drawing to complete.
         """
 
-        logging.info(f'Wiping:  y spacing={y_spacing_mm} mm')
+        logger.info(f'Wiping:  y spacing={y_spacing_mm} mm')
 
         with self.move_lock:
             curr_x_mm, curr_y_mm = self.x, self.y
