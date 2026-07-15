@@ -110,7 +110,6 @@ def update_led_strip_on_gantry_update(
             led_lock.release()
 
 gantry.event(update_led_strip_on_gantry_update, synchronous=False)
-gantry.start()
 
 def on_exit():
     """
