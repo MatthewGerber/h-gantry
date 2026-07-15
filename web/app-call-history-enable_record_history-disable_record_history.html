@@ -11,4 +11,21 @@ app_call_history_enable_record_history_disable_record_history.on("change", funct
     type: "GET"
   });
 });
+async function app_call_history_enable_record_history_disable_record_history_recording_history() {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/app-call-history/recording_history",
+    type: "GET",
+    success: async function (return_value) {
+      app_call_history_enable_record_history_disable_record_history.prop("checked", return_value);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await app_call_history_enable_record_history_disable_record_history_recording_history();
+    },
+    error: async function(xhr, error){
+      console.log(error);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await app_call_history_enable_record_history_disable_record_history_recording_history();
+    }
+  });
+}
+app_call_history_enable_record_history_disable_record_history_recording_history();
 </script>

@@ -1,5 +1,5 @@
 <div class="form-check form-switch switch-container">
-  <input class="form-check-input" type="checkbox" role="switch" id="gantry-1-enable-disable" checked />
+  <input class="form-check-input" type="checkbox" role="switch" id="gantry-1-enable-disable"/>
   <label class="form-check-label" for="gantry-1-enable-disable">Enabled</label>
 </div>
 <script type="module">
@@ -11,4 +11,21 @@ gantry_1_enable_disable.on("change", function () {
     type: "GET"
   });
 });
+async function gantry_1_enable_disable_enabled() {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/enabled",
+    type: "GET",
+    success: async function (return_value) {
+      gantry_1_enable_disable.prop("checked", return_value);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await gantry_1_enable_disable_enabled();
+    },
+    error: async function(xhr, error){
+      console.log(error);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await gantry_1_enable_disable_enabled();
+    }
+  });
+}
+gantry_1_enable_disable_enabled();
 </script>

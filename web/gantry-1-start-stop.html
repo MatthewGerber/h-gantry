@@ -11,4 +11,21 @@ gantry_1_start_stop.on("change", function () {
     type: "GET"
   });
 });
+async function gantry_1_start_stop_started() {
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/started",
+    type: "GET",
+    success: async function (return_value) {
+      gantry_1_start_stop.prop("checked", return_value);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await gantry_1_start_stop_started();
+    },
+    error: async function(xhr, error){
+      console.log(error);
+      await new Promise(r => setTimeout(r, 1000.0));
+      await gantry_1_start_stop_started();
+    }
+  });
+}
+gantry_1_start_stop_started();
 </script>
