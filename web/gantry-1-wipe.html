@@ -8,10 +8,8 @@ function on_press_wipe () {
   dyn_args_query = dyn_args_query + "y_spacing_mm=float:" + dyn_arg_value;
   dyn_arg_value = document.getElementById("wipe-mm_per_sec").value;
   dyn_args_query = dyn_args_query + "&mm_per_sec=float:" + dyn_arg_value;
-  dyn_arg_value = $("#wipe-block").is(":checked");
-  dyn_args_query = dyn_args_query + "&block=bool:" + dyn_arg_value;
   $.ajax({
-    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/wipe?add_to_history=bool:True" + dyn_args_query,
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/wipe?add_to_history=bool:True&block=bool:True" + dyn_args_query,
     type: "GET"
   });
 }
