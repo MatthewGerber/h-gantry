@@ -79,7 +79,18 @@ gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
 
 # configure lighting as an event on the gantry state change
 pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 288 - 15, brightness=0.1, auto_write=False)
-led_strip = FrameLedStrip(pixels, 7.0, 482.6, 482.6)
+led_strip = FrameLedStrip(
+    pixels,
+    7.0,
+    482.6,
+    482.6,
+    illuminated_width_height_x_off_y_off_mm=(
+        7.9375,
+        7.9375,
+        36.0,
+        36.0
+    )
+)
 led_lock = Lock()
 def update_led_strip_on_gantry_update(
         gantry_state: HGantry.State

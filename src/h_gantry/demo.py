@@ -1,6 +1,7 @@
 import logging
 import os.path
 import time
+from typing import cast
 
 import serial
 from serial import Serial
@@ -84,9 +85,9 @@ def main():
     # gantry.move_to_offset(0.0, 20.0, 150.0, False, False)
     # gantry.move_to_point(gantry.left_right_mm, gantry.y, 150.0, False, False)
     # gantry.center(150.0, True, False)
-
     # gantry.move_to_offset(30.0, 0.0, 100.0, True, False)
-    # gantry.move_to_left_limit(100.0, 100.0)
+    # gantry.set_state(cast(HGantry.State, gantry.state).set(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
+    # gantry.move_to_top_limit(100.0, 100.0)
     # gantry.move_to_offset(10.0, 0.0, 100.0, True, False)
     # gantry.move_to_offset_limit(1.0, 1.0, 10.0)
     # gantry.move_to_offset(0.0, 10.0, 100.0, False, True)
