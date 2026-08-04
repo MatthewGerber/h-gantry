@@ -1,3 +1,4 @@
+import math
 from typing import List, Tuple
 
 import matplotlib.pyplot as plt
@@ -7,6 +8,24 @@ MIN_US_PER_DRIVE = 100
 FULL_ACCEL_INTERVAL_SEC = 0.5
 US_PER_SEC = 1e6
 MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC))
+
+
+def mod(x: int, y: int):
+    """
+    True modulo operator.
+    """
+
+    # arduino % behaves like math.fmod
+    return int(math.fmod((x + 1), y) + y - 1 if x < 0 else x % y)
+
+
+def alt_mod(x, y):
+    """
+    Alternative true modulo operator.
+    """
+
+    # arduino % behaves like math.fmod
+    return int(math.fmod((math.fmod(x, y) + y), y))
 
 
 def get_drive_delays_us(
@@ -141,6 +160,13 @@ def get_dual_delays(
     return a_drive_delays, b_drive_delays
 
 def main():
+
+    for x in range(0, -10, -1):
+        i1 = mod(x, 4)
+        i2 = alt_mod(x, 4)
+        i3 = x % 4
+        assert i1 == i2 == i3
+        print(f'x={x}; idx={i1}')
 
     stepper_full_steps_per_revolution = 200
     drives_per_step = 4

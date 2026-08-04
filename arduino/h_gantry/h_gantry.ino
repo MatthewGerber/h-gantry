@@ -7,10 +7,19 @@ bool DEBUG = false;
 const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
-const size_t STEPPER_DONE_RESPONSE_LEN = 7;
-const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;  // maximum number of responses before force-flushing the response buffer. ensures the buffer does not exhaust memory.
-const byte MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_RESPONSE_BUFFER = 10;  // minimum step buffer length before force-flushing the response buffer. ensures responsiveness to the caller.
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
+
+const size_t STEPPER_DONE_RESPONSE_LEN = 7;
+
+/* maximum number of responses before force-flushing the response buffer. ensures the buffer 
+ * does not exhaust memory.
+*/
+const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
+
+/* minimum step buffer length before force-flushing the response buffer. ensures responsiveness to the 
+ * caller, who might be waiting for responses before sending more steps.
+*/ 
+const byte MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER = 10;
 
 const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
 byte STEPPER_DONE_RESPONSE_BUFFER[STEPPER_DONE_RESPONSE_BUFFER_LEN];
@@ -30,7 +39,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
   { LOW },
   { HIGH }
 };
-const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration
+const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration from a slower speed
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 500;  // fastest driving directly from a dead stop
 const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
@@ -108,12 +117,14 @@ stepper right_stepper;
 struct step {
   long left_stepper_num_drives;
   long right_stepper_num_drives;
+  unsigned long drive_start_us;
   unsigned long us_to_drive;
+  unsigned long expected_drive_end_us;
   unsigned int idx;
   step* next;
 };
-step* steps_head = nullptr;
-step* steps_tail = nullptr;
+step* steps_head = nullptr;  // next step to process
+step* steps_tail = nullptr;  // final step to process
 unsigned int steps_len = 0;
 unsigned int curr_step_idx = 0;  // current step index being processed; will be 0 when not processing a step.
 
@@ -206,8 +217,16 @@ void write_byte(byte value) {
   SerialUART.write(value);
 }
 
+/**
+ * True modulo operator that wraps to the maximum value for negative numbers. The standard
+ * C/Arduino behavior of % is the remainder, which takes the sign of the dividend.
+ *
+ * @param x Dividend.
+ * @param y Divisor.
+ * @return x modulo y.
+*/
 byte mod(long x, byte y) {
-  return x < 0 ? ((x + 1) % y) + y - 1 : x % y;
+  return ((x % y) + y) % y;  // alternatively:  x < 0 ? ((x + 1) % y) + y - 1 : x % y;
 }
 
 /**
@@ -220,7 +239,8 @@ byte mod(long x, byte y) {
 */
 void add_step(
   long left_stepper_num_drives, 
-  long right_stepper_num_drives, 
+  long right_stepper_num_drives,
+  unsigned long drive_start_us, 
   unsigned long us_to_drive,
   unsigned int idx
 ) {
@@ -228,7 +248,9 @@ void add_step(
   step* new_step = new step();
   new_step->left_stepper_num_drives = left_stepper_num_drives;
   new_step->right_stepper_num_drives = right_stepper_num_drives;
+  new_step->drive_start_us = drive_start_us;
   new_step->us_to_drive = us_to_drive;
+  new_step->expected_drive_end_us = drive_start_us + us_to_drive;
   new_step->idx = idx;
   new_step->next = nullptr;
 
@@ -484,6 +506,8 @@ void drive_stepper(
     if (limited_travel) {
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
+
+    // otherwise, drive the next index in the sequence.
     else {
       byte drive_sequence_idx = mod(stepper_to_drive->drive_idx, DRIVE_SEQUENCE_LEN);
       for (byte pin_idx = 0; pin_idx < stepper_to_drive->driver_num_in_pins; ++pin_idx) {
@@ -746,9 +770,20 @@ void loop() {
 
       // indices must be the same; otherwise, we're out of sync with the caller. us to drive must also be the same, since the steppers always move in tandem.
       if (left_stepper_step_idx == right_stepper_step_idx && left_stepper_us_to_drive == right_stepper_us_to_drive) {
+
+        // estimate the drive start time (us) as the current time (if this is the only step) or the tail step's expected end time.
+        unsigned long drive_start_us;
+        if (steps_tail == nullptr) {
+          drive_start_us = curr_time_us;
+        }
+        else {
+          drive_start_us = steps_tail->expected_drive_end_us;
+        }
+
         add_step(
           left_stepper_num_drives, 
           right_stepper_num_drives, 
+          drive_start_us,
           left_stepper_us_to_drive,  // same as right
           left_stepper_step_idx // same as right
         );
@@ -774,7 +809,7 @@ void loop() {
 
     // if the buffer is low/empty, then force-flush the stepper done buffer. the caller might 
     // be waiting on this signal that the buffer is low before sending more moves.
-    if (steps_len <= MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_RESPONSE_BUFFER) {
+    if (steps_len <= MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER) {
       check_stepper_done_buffer(true);
     }
 
