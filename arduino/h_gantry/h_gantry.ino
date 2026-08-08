@@ -219,7 +219,12 @@ void write_byte(byte value) {
 
 /**
  * True modulo operator that wraps to the maximum value for negative numbers. The standard
- * C/Arduino behavior of % is the remainder, which takes the sign of the dividend.
+ * C/Arduino behavior of % is the remainder operator, which takes the sign of the dividend.
+ * When the dividend is negative, the remainder is also negative, which does not work when
+ * we want to use the result for looping indices over an array. Instead, we need the true
+ * mathematical modulo operator. The C/Arduino % operator behaves like math.fmod in Python.
+ * The % operator in Python behaves like the true modulo operator and also the same as the 
+ * function below.
  *
  * @param x Dividend.
  * @param y Divisor.
@@ -234,6 +239,7 @@ byte mod(long x, byte y) {
  *
  * @param left_stepper_num_drives Number of drives to apply to the left stepper.
  * @param right_stepper_num_drives Number of drives to apply to the right stepper.
+ * @param drive_start_us Drive start timestamp.
  * @param us_to_drive Microseconds in which to achieve the drives.
  * @param idx Step index.
 */
@@ -374,7 +380,7 @@ void start_stepper(
     stepper_to_start->limit_skipped_drives = 0;
     stepper_to_start->us_per_drive = 0;
     stepper_to_start->us_per_drive_target = 0;
-    write_stepper_done(stepper_to_start, curr_step_idx);
+    write_stepper_done(stepper_to_start, curr_step_idx, curr_time_us);
   }
 
   // otherwise, configure the stepper to run.
@@ -518,7 +524,7 @@ void drive_stepper(
     stepper_to_drive->previous_drive_us = curr_time_us;
 
     if (stepper_to_drive->drives_remaining == 0) {
-      write_stepper_done(stepper_to_drive, curr_step_idx);
+      write_stepper_done(stepper_to_drive, curr_step_idx, curr_time_us);
     }
   }
 }
@@ -543,10 +549,10 @@ void disable_stepper(
  * @param stepper_done Stepper that is done.
  * @param idx Move sequence index.
 */
-void write_stepper_done(stepper* stepper_done, unsigned int idx) {
+void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long curr_time_us) {
 
     if (DEBUG) {
-      SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx));
+      SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx) + " at time " + String(curr_time_us));
     }
 
     // form response from stepper identifier, number of skipped steps, and move sequence index.

@@ -926,14 +926,17 @@ class HGantry(Component):
             num_moves_pending_in_arduino = len(self.moves_pending_in_arduino)
 
             if only_send_if_needed:
-                if num_moves_pending_in_arduino <= self.min_moves_pending_in_arduino:
+                arduino_needs_moves = num_moves_pending_in_arduino < self.min_moves_pending_in_arduino
+                if arduino_needs_moves:
                     max_num_moves_to_send = self.max_moves_pending_in_arduino - num_moves_pending_in_arduino
                 else:
                     max_num_moves_to_send = 0
             else:
                 max_num_moves_to_send = num_python_moves_available
 
-            if num_python_moves_available > 0 and max_num_moves_to_send > 0:
+            python_has_moves = num_python_moves_available > 0
+
+            if python_has_moves and max_num_moves_to_send > 0:
 
                 moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:
@@ -1009,11 +1012,16 @@ class HGantry(Component):
             ]
         }
         assert len(stepper_id_skipped_steps_idx) == 2
+
+        # ensure that the completed steps were for the same move as passed in
         assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
+
+        # pop the move from the buffer of pending arduino moves
         with self.move_lock:
             assert move.idx == self.moves_pending_in_arduino[0].idx
             self.moves_pending_in_arduino.popleft()
             logger.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
+
         elapsed_seconds = time() - move.start_time_epoch
         left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
         right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
