@@ -989,12 +989,13 @@ class HGantry(Component):
     def read_move_from_arduino(
             self,
             move: Move
-    ) -> Tuple[float, float, float]:
+    ) -> Tuple[float, float, float, float]:
         """
         Read a move from Arduino, which will block until the Arduino sends the read-completed message back.
 
         :param move: Move to read.
-        :return: 3-tuple of elapsed seconds for the move, left stepper skipped steps, and right stepper skipped steps.
+        :return: 4-tuple of elapsed seconds for the left stepper, left stepper skipped steps, elapsed seconds for the
+        right stepper, and right stepper skipped steps.
         """
 
         assert move.get_left_driver_return_value is not None
@@ -1004,17 +1005,14 @@ class HGantry(Component):
         # unpredictable order. however, the result tuples have the stepper identifier as the first element,
         # so we can key on that to obtain the result for each stepper.
         logger.debug('Reading move response from Arduino driver.')
-        stepper_id_skipped_steps_idx = {
-            stepper_id: (skipped_steps, idx)
-            for stepper_id, skipped_steps, idx in [
+        stepper_id_return_tuple = {
+            stepper_id: (skipped_steps, idx, done_time_epoch)
+            for stepper_id, skipped_steps, idx, done_time_epoch in [
                 move.get_left_driver_return_value(),
                 move.get_right_driver_return_value()
             ]
         }
-        assert len(stepper_id_skipped_steps_idx) == 2
-
-        # ensure that the completed steps were for the same move as passed in
-        assert all(idx == move.idx for _, idx in stepper_id_skipped_steps_idx.values())
+        assert len(stepper_id_return_tuple) == 2
 
         # pop the move from the buffer of pending arduino moves
         with self.move_lock:
@@ -1022,11 +1020,29 @@ class HGantry(Component):
             self.moves_pending_in_arduino.popleft()
             logger.debug(f'Moves pending in Arduino:  {len(self.moves_pending_in_arduino)}')
 
-        elapsed_seconds = time() - move.start_time_epoch
-        left_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.left_driver.identifier][0]
-        right_stepper_skipped_steps = stepper_id_skipped_steps_idx[self.right_driver.identifier][0]
+        (
+            left_stepper_skipped_steps,
+            left_stepper_idx,
+            left_stepper_done_time_epoch
+        ) = stepper_id_return_tuple[self.left_driver.identifier]
+        left_stepper_elapsed_seconds = left_stepper_done_time_epoch - move.start_time_epoch
 
-        return elapsed_seconds, left_stepper_skipped_steps, right_stepper_skipped_steps
+        (
+            right_stepper_skipped_steps,
+            right_stepper_idx,
+            right_stepper_done_time_epoch
+        ) = stepper_id_return_tuple[self.right_driver.identifier]
+        right_stepper_elapsed_seconds = right_stepper_done_time_epoch - move.start_time_epoch
+
+        # ensure that the completed steps were for the same move as passed in
+        assert left_stepper_idx == right_stepper_idx == move.idx
+
+        return (
+            left_stepper_elapsed_seconds,
+            left_stepper_skipped_steps,
+            right_stepper_elapsed_seconds,
+            right_stepper_skipped_steps
+        )
 
     def update_stepper_state(
             self,
@@ -1077,8 +1093,9 @@ class HGantry(Component):
                 while (move := self.get_move_to_read_from_arduino(clear_move_buffers)) is not None:
 
                     (
-                        elapsed_seconds,
+                        left_stepper_elapsed_seconds,
                         left_stepper_skipped_steps,
+                        right_stepper_elapsed_seconds,
                         right_stepper_skipped_steps
                     ) = self.read_move_from_arduino(move)
 
@@ -1086,14 +1103,14 @@ class HGantry(Component):
                         self.left_stepper,
                         move.left_stepper_steps,
                         left_stepper_skipped_steps,
-                        elapsed_seconds
+                        left_stepper_elapsed_seconds
                     )
 
                     self.update_stepper_state(
                         self.right_stepper,
                         move.right_stepper_steps,
                         right_stepper_skipped_steps,
-                        elapsed_seconds
+                        right_stepper_elapsed_seconds
                     )
 
                     skipped_x_mm, skipped_y_mm = self.get_x_mm_y_mm_from_steps(

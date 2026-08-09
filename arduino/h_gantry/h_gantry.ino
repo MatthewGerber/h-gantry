@@ -9,7 +9,14 @@ const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 
-const size_t STEPPER_DONE_RESPONSE_LEN = 7;
+/* stepper done response.
+ * 
+ * stepper identifier:  byte (1 byte)
+ * number of skipped steps:  float (4 bytes)
+ * move sequence index:  unsigned int (2 bytes)
+ * completion timestamp epoch:  float (4 bytes)
+*/
+const size_t STEPPER_DONE_RESPONSE_LEN = 11;
 
 /* maximum number of responses before force-flushing the response buffer. ensures the buffer 
  * does not exhaust memory.
@@ -30,6 +37,10 @@ typedef union {
   float number;
   byte bytes[FLOAT_BYTES_LEN];
 } floatbytes;
+
+// time epoch values, both seconds and microseconds.
+floatbytes TIME_EPOCH_SECONDS;
+unsigned long TIME_EPOCH_US = 0;
 
 // stepper driver configuration
 const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the A4988 driver
@@ -87,6 +98,12 @@ const byte CMD_STEP_ARGS_LEN = 16;
 
 // command:  stop
 const byte CMD_STOP = 3;
+
+// command:  get current time (us)
+const byte CMD_GET_CURRENT_TIME_US = 4;
+
+// command:  set epoch time
+const byte CMD_SET_EPOCH_TIME = 5;
 
 // reusable structure for stepper configuration and drive state
 struct stepper {
@@ -547,15 +564,16 @@ void disable_stepper(
  * Write back to client that stepper is done.
  *
  * @param stepper_done Stepper that is done.
- * @param idx Move sequence index.
+ * @param idx Move sequence index that is done.
+ * @param done_time_us Timestamp (us) when the stepper/move completed.
 */
-void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long curr_time_us) {
+void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long done_time_us) {
 
     if (DEBUG) {
-      SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx) + " at time " + String(curr_time_us));
+      SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx) + " at time " + String(done_time_us));
     }
 
-    // form response from stepper identifier, number of skipped steps, and move sequence index.
+    // form response:  stepper identifier, number of skipped steps, move sequence index, and completion timestamp
     byte response[STEPPER_DONE_RESPONSE_LEN];
     response[0] = stepper_done->identifier;
     floatbytes limit_skipped_steps;
@@ -564,10 +582,13 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long c
     byte idx_bytes[2];
     unsigned_int_to_bytes(idx, idx_bytes);
     memcpy(response + 5, idx_bytes, 2);
+    floatbytes done_time_epoch;
+    done_time_epoch.number = TIME_EPOCH_SECONDS.number + (done_time_us - TIME_EPOCH_US) / US_PER_SEC;
+    memcpy(response + 7, done_time_epoch.bytes, 4);
 
     // buffer the response and check/send responses
-    size_t cpy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
-    memcpy(STEPPER_DONE_RESPONSE_BUFFER + cpy_start_idx, response, STEPPER_DONE_RESPONSE_LEN);
+    size_t copy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
+    memcpy(STEPPER_DONE_RESPONSE_BUFFER + copy_start_idx, response, STEPPER_DONE_RESPONSE_LEN);
     NUM_STEPPER_DONE_RESPONSES_BUFFERED += 1;
     check_stepper_done_buffer(false);
 
@@ -615,6 +636,8 @@ byte top_limit_switch_pin;
 bool limit_switches_inited = false;
 
 void setup() {
+
+  TIME_EPOCH_SECONDS.number = 0.0;
 
   left_stepper.identifier = 0;
   right_stepper.identifier = 1;
@@ -805,6 +828,14 @@ void loop() {
       else if (component_id == right_stepper.identifier && right_stepper.is_inited) {
         stop_stepper(&right_stepper);
       }
+    }
+    else if (command == CMD_GET_CURRENT_TIME_US) {
+      write_unsigned_long(curr_time_us);
+    }
+    else if (command == CMD_SET_EPOCH_TIME) {
+      SerialUART.readBytes(TIME_EPOCH_SECONDS.bytes, FLOAT_BYTES_LEN);
+      TIME_EPOCH_US = curr_time_us;
+      write_bool(true);
     }
   }
 
