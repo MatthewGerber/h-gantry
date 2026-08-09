@@ -134,9 +134,7 @@ stepper right_stepper;
 struct step {
   long left_stepper_num_drives;
   long right_stepper_num_drives;
-  unsigned long drive_start_us;
   unsigned long us_to_drive;
-  unsigned long expected_drive_end_us;
   unsigned int idx;
   step* next;
 };
@@ -256,14 +254,12 @@ byte mod(long x, byte y) {
  *
  * @param left_stepper_num_drives Number of drives to apply to the left stepper.
  * @param right_stepper_num_drives Number of drives to apply to the right stepper.
- * @param drive_start_us Drive start timestamp.
  * @param us_to_drive Microseconds in which to achieve the drives.
  * @param idx Step index.
 */
 void add_step(
   long left_stepper_num_drives, 
   long right_stepper_num_drives,
-  unsigned long drive_start_us, 
   unsigned long us_to_drive,
   unsigned int idx
 ) {
@@ -271,9 +267,7 @@ void add_step(
   step* new_step = new step();
   new_step->left_stepper_num_drives = left_stepper_num_drives;
   new_step->right_stepper_num_drives = right_stepper_num_drives;
-  new_step->drive_start_us = drive_start_us;
   new_step->us_to_drive = us_to_drive;
-  new_step->expected_drive_end_us = drive_start_us + us_to_drive;
   new_step->idx = idx;
   new_step->next = nullptr;
 
@@ -583,7 +577,7 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
     unsigned_int_to_bytes(idx, idx_bytes);
     memcpy(response + 5, idx_bytes, 2);
     floatbytes done_time_epoch;
-    done_time_epoch.number = TIME_EPOCH_SECONDS.number + (done_time_us - TIME_EPOCH_US) / US_PER_SEC;
+    done_time_epoch.number = TIME_EPOCH_SECONDS.number + (done_time_us - TIME_EPOCH_US) / float(US_PER_SEC);
     memcpy(response + 7, done_time_epoch.bytes, 4);
 
     // buffer the response and check/send responses
@@ -799,22 +793,11 @@ void loop() {
 
       // indices must be the same; otherwise, we're out of sync with the caller. us to drive must also be the same, since the steppers always move in tandem.
       if (left_stepper_step_idx == right_stepper_step_idx && left_stepper_us_to_drive == right_stepper_us_to_drive) {
-
-        // estimate the drive start time (us) as the current time (if this is the only step) or the tail step's expected end time.
-        unsigned long drive_start_us;
-        if (steps_tail == nullptr) {
-          drive_start_us = curr_time_us;
-        }
-        else {
-          drive_start_us = steps_tail->expected_drive_end_us;
-        }
-
         add_step(
           left_stepper_num_drives, 
-          right_stepper_num_drives, 
-          drive_start_us,
+          right_stepper_num_drives,
           left_stepper_us_to_drive,  // same as right
-          left_stepper_step_idx // same as right
+          left_stepper_step_idx  // same as right
         );
       }
       else {
