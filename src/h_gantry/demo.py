@@ -8,7 +8,7 @@ from serial import Serial
 
 from h_gantry.core import HGantry
 from raspberry_py.gpio import setup, cleanup, CkPin
-from raspberry_py.gpio.communication import LockingSerial, synchronize_epoch_time
+from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 
 
@@ -32,7 +32,10 @@ def main():
         throughput_step_size=0.05,
         manual_buffer=True
     )
-    synchronize_epoch_time(locking_serial, 4, 5)
+    locking_serial.manual_buffer = False
+    locking_serial.synchronize_epoch_time( 4, 5)
+    print(f'Epoch (Python):  {time.time()}; epoch (Arduino):  {locking_serial.get_epoch_time(6)}')
+    locking_serial.manual_buffer = True
 
     stepper_full_steps_per_revolution = 200
     stepper_output_rotor_ratio = 1.0 / 1.0

@@ -19,7 +19,8 @@ const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 const size_t STEPPER_DONE_RESPONSE_LEN = 11;
 
 /* maximum number of responses before force-flushing the response buffer. ensures the buffer 
- * does not exhaust memory.
+ * does not exhaust memory. larger values decrease chatter back to the caller but also make
+ * the responses have higher latency.
 */
 const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
 
@@ -105,6 +106,9 @@ const byte CMD_GET_CURRENT_TIME_US = 4;
 // command:  set epoch time
 const byte CMD_SET_EPOCH_TIME = 5;
 
+// command:  get epoch time
+const byte CMD_GET_EPOCH_TIME = 6;
+
 // reusable structure for stepper configuration and drive state
 struct stepper {
   byte identifier;
@@ -129,8 +133,9 @@ struct stepper {
 stepper left_stepper;
 stepper right_stepper;
 
-// linked list of steps to take, acting as a read buffer. each step determines how the
-// left and right steppers should move in tandem.
+/* fifo linked list of steps to take, acting as a read buffer. each step determines
+ * how the left and right steppers should move in tandem.
+*/
 struct step {
   long left_stepper_num_drives;
   long right_stepper_num_drives;
@@ -555,6 +560,16 @@ void disable_stepper(
 }
 
 /**
+ * Get epoch time for a microseconds time value.
+ *
+ * @param time_us Time in microseconds (us).
+ * @return Floating-point epoch time.
+*/
+float get_epoch_time(unsigned long time_us) {
+  return TIME_EPOCH_SECONDS.number + (time_us - TIME_EPOCH_US) / float(US_PER_SEC);
+}
+
+/**
  * Write back to client that stepper is done.
  *
  * @param stepper_done Stepper that is done.
@@ -577,7 +592,7 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
     unsigned_int_to_bytes(idx, idx_bytes);
     memcpy(response + 5, idx_bytes, 2);
     floatbytes done_time_epoch;
-    done_time_epoch.number = TIME_EPOCH_SECONDS.number + (done_time_us - TIME_EPOCH_US) / float(US_PER_SEC);
+    done_time_epoch.number = get_epoch_time(done_time_us);
     memcpy(response + 7, done_time_epoch.bytes, 4);
 
     // buffer the response and check/send responses
@@ -819,6 +834,11 @@ void loop() {
       SerialUART.readBytes(TIME_EPOCH_SECONDS.bytes, FLOAT_BYTES_LEN);
       TIME_EPOCH_US = curr_time_us;
       write_bool(true);
+    }
+    else if (command == CMD_GET_EPOCH_TIME) {
+      floatbytes epoch_time;
+      epoch_time.number = get_epoch_time(curr_time_us);
+      write_float(epoch_time);
     }
   }
 
