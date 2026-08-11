@@ -30,11 +30,9 @@ def main():
             bytesize=serial.EIGHTBITS
         ),
         throughput_step_size=0.05,
-        manual_buffer=True
+        manual_buffer=False
     )
-    locking_serial.manual_buffer = False
-    locking_serial.synchronize_epoch_time( 4, 5)
-    print(f'Epoch (Python):  {time.time()}; epoch (Arduino):  {locking_serial.get_epoch_time(6)}')
+    locking_serial.synchronize_epoch_time( 4, 5, 6)
     locking_serial.manual_buffer = True
 
     stepper_full_steps_per_revolution = 200

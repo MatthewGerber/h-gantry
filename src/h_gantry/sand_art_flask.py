@@ -29,8 +29,10 @@ locking_serial = LockingSerial(
         bytesize=serial.EIGHTBITS
     ),
     throughput_step_size=0.05,
-    manual_buffer=True
+    manual_buffer=False
 )
+locking_serial.synchronize_epoch_time( 4, 5, 6)
+locking_serial.manual_buffer = True
 
 left_stepper = Stepper(
     full_steps_per_revolution=STEPPER_FULL_STEPS_PER_REVOLUTION,
