@@ -5,6 +5,7 @@
 bool DEBUG = false;
 
 const size_t FLOAT_BYTES_LEN = 4;
+const size_t DOUBLE_BYTES_LEN = 8;
 const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
@@ -12,11 +13,11 @@ const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 /* stepper done response.
  * 
  * stepper identifier:  byte (1 byte)
- * number of skipped steps:  float (4 bytes)
+ * number of skipped steps:  double (8 bytes)
  * move sequence index:  unsigned int (2 bytes)
- * completion timestamp epoch:  float (4 bytes)
+ * completion timestamp epoch:  double (8 bytes)
 */
-const size_t STEPPER_DONE_RESPONSE_LEN = 11;
+const size_t STEPPER_DONE_RESPONSE_LEN = 19;
 
 /* maximum number of responses before force-flushing the response buffer. ensures the buffer 
  * does not exhaust memory. larger values decrease chatter back to the caller but also make
@@ -33,14 +34,20 @@ const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = MAX_NUM_STEPPER_DONE_RESPONSES_T
 byte STEPPER_DONE_RESPONSE_BUFFER[STEPPER_DONE_RESPONSE_BUFFER_LEN];
 byte NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
 
-// structure that gives simultaneous access to floating-point numbers and their underlying bytes
+// structure that gives simultaneous access to single-precision floating-point numbers and their underlying bytes
 typedef union {
   float number;
   byte bytes[FLOAT_BYTES_LEN];
 } floatbytes;
 
+// structure that gives simultaneous access to double-precision floating-point numbers and their underlying bytes
+typedef union {
+  double number;
+  byte bytes[DOUBLE_BYTES_LEN];
+} doublebytes;
+
 // time epoch values, both seconds and microseconds.
-floatbytes TIME_EPOCH_SECONDS;
+doublebytes TIME_EPOCH_SECONDS;
 unsigned long TIME_EPOCH_US = 0;
 
 // stepper driver configuration
@@ -53,7 +60,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration from a slower speed
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 500;  // fastest driving directly from a dead stop
-const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+const double FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
 
 // Microstep configuration for the A4988
@@ -80,10 +87,10 @@ const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driv
 // };
 // const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving with acceleration
 // const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
-// const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+// const double FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 
 // maximum acceleration (us/drive/us):  slowest to fastest within the full-acceleration interval
-const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));
+const double MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * double(US_PER_SEC));
 
 // command id and component id
 const size_t CMD_BYTES_LEN = 2;
@@ -229,6 +236,10 @@ void write_float(floatbytes f) {
   SerialUART.write(f.bytes, FLOAT_BYTES_LEN);
 }
 
+void write_double(doublebytes d) {
+  SerialUART.write(d.bytes, DOUBLE_BYTES_LEN);
+}
+
 void write_bool(bool value) {
   SerialUART.write(value);
 }
@@ -356,7 +367,7 @@ unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
 
     unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
     if (num_delays > 0) {
-      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
+      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / double(num_delays));
     }
     
     // impose maximum drive rate (minimum delay)
@@ -563,10 +574,17 @@ void disable_stepper(
  * Get epoch time for a microseconds time value.
  *
  * @param time_us Time in microseconds (us).
- * @return Floating-point epoch time.
+ * @return Double-precision floating-point epoch time.
 */
-float get_epoch_time(unsigned long time_us) {
-  return TIME_EPOCH_SECONDS.number + (time_us - TIME_EPOCH_US) / float(US_PER_SEC);
+double get_epoch_time(unsigned long time_us) {
+
+  double seconds_since_epoch_set = (time_us - TIME_EPOCH_US) / double(US_PER_SEC);
+
+  if (DEBUG) {
+    SerialUSB.println("Seconds since epoch was set:  " + String(seconds_since_epoch_set));
+  }
+
+  return TIME_EPOCH_SECONDS.number + seconds_since_epoch_set;
 }
 
 /**
@@ -585,15 +603,18 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
     // form response:  stepper identifier, number of skipped steps, move sequence index, and completion timestamp
     byte response[STEPPER_DONE_RESPONSE_LEN];
     response[0] = stepper_done->identifier;
-    floatbytes limit_skipped_steps;
-    limit_skipped_steps.number = stepper_done->limit_skipped_drives / float(DRIVES_PER_STEP);
-    memcpy(response + 1, limit_skipped_steps.bytes, FLOAT_BYTES_LEN);
+    size_t memcpy_offset = 1;
+    doublebytes limit_skipped_steps;
+    limit_skipped_steps.number = stepper_done->limit_skipped_drives / double(DRIVES_PER_STEP);
+    memcpy(response + memcpy_offset, limit_skipped_steps.bytes, DOUBLE_BYTES_LEN);
+    memcpy_offset += DOUBLE_BYTES_LEN;
     byte idx_bytes[2];
     unsigned_int_to_bytes(idx, idx_bytes);
-    memcpy(response + 5, idx_bytes, 2);
-    floatbytes done_time_epoch;
+    memcpy(response + memcpy_offset, idx_bytes, 2);
+    memcpy_offset += 2;
+    doublebytes done_time_epoch;
     done_time_epoch.number = get_epoch_time(done_time_us);
-    memcpy(response + 7, done_time_epoch.bytes, 4);
+    memcpy(response + memcpy_offset, done_time_epoch.bytes, DOUBLE_BYTES_LEN);
 
     // buffer the response and check/send responses
     size_t copy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
@@ -831,14 +852,19 @@ void loop() {
       write_unsigned_long(curr_time_us);
     }
     else if (command == CMD_SET_EPOCH_TIME) {
-      SerialUART.readBytes(TIME_EPOCH_SECONDS.bytes, FLOAT_BYTES_LEN);
+      doublebytes d;
+      SerialUART.readBytes(d.bytes, DOUBLE_BYTES_LEN);
+      TIME_EPOCH_SECONDS.number = d.number;
       TIME_EPOCH_US = curr_time_us;
       write_bool(true);
+      if (DEBUG) {
+        SerialUSB.println("Set epoch time:  " + String(d.number));
+      }
     }
     else if (command == CMD_GET_EPOCH_TIME) {
-      floatbytes epoch_time;
+      doublebytes epoch_time;
       epoch_time.number = get_epoch_time(curr_time_us);
-      write_float(epoch_time);
+      write_double(epoch_time);
     }
   }
 
