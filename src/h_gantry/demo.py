@@ -32,7 +32,7 @@ def main():
         throughput_step_size=0.05,
         manual_buffer=False
     )
-    locking_serial.synchronize_epoch_time( 4, 5, 6)
+    locking_serial.synchronize_receiver_epoch_time(4, 5, 6)
     locking_serial.manual_buffer = True
 
     stepper_full_steps_per_revolution = 200
