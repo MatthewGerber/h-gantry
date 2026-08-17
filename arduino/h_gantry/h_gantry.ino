@@ -2,7 +2,7 @@
 // define a nicer variable to refer to serial tx/rx.
 #define SerialUART _UART1_
 
-bool DEBUG = true;
+bool DEBUG = false;
 
 const size_t FLOAT_BYTES_LEN = 4;
 const size_t LONG_BYTES_LEN = 4;
