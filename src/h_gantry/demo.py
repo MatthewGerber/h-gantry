@@ -32,8 +32,9 @@ def main():
         throughput_step_size=0.05,
         manual_buffer=False
     )
-    locking_serial.synchronize_receiver_epoch_time(4, 5, 6)
+    locking_serial.synchronize_remote_epoch_time(4)
     locking_serial.manual_buffer = True
+    return
 
     stepper_full_steps_per_revolution = 200
     stepper_output_rotor_ratio = 1.0 / 1.0

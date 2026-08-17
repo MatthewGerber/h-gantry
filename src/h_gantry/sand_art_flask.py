@@ -31,7 +31,7 @@ locking_serial = LockingSerial(
     throughput_step_size=0.05,
     manual_buffer=False
 )
-locking_serial.synchronize_receiver_epoch_time(4, 5, 6)
+locking_serial.synchronize_remote_epoch_time(4)
 locking_serial.manual_buffer = True
 
 left_stepper = Stepper(
@@ -43,7 +43,8 @@ left_stepper = Stepper(
         direction_pin=6,
         identifier=0,
         serial=locking_serial,
-        asynchronous=True
+        asynchronous=True,
+        float_scale=1000
     ),
     reverse=False
 )
@@ -57,7 +58,8 @@ right_stepper = Stepper(
         direction_pin=8,
         identifier=1,
         serial=locking_serial,
-        asynchronous=True
+        asynchronous=True,
+        float_scale=1000
     ),
     reverse=False
 )

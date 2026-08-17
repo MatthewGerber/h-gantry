@@ -2,10 +2,9 @@
 // define a nicer variable to refer to serial tx/rx.
 #define SerialUART _UART1_
 
-bool DEBUG = false;
+bool DEBUG = true;
 
 const size_t FLOAT_BYTES_LEN = 4;
-const size_t DOUBLE_BYTES_LEN = 8;
 const size_t LONG_BYTES_LEN = 4;
 const size_t UNSIGNED_INT_BYTES_LEN = 2;
 const unsigned long US_PER_SEC = 1e6;  // microseconds per second
@@ -13,11 +12,11 @@ const unsigned long US_PER_SEC = 1e6;  // microseconds per second
 /* stepper done response.
  * 
  * stepper identifier:  byte (1 byte)
- * number of skipped steps:  double (8 bytes)
+ * number of skipped steps:  fixed-point long (4 bytes)
  * move sequence index:  unsigned int (2 bytes)
- * completion timestamp epoch:  double (8 bytes)
+ * completion timestamp epoch:  unsigned long (4 bytes)
 */
-const size_t STEPPER_DONE_RESPONSE_LEN = 19;
+const size_t STEPPER_DONE_RESPONSE_LEN = 11;
 
 /* maximum number of responses before force-flushing the response buffer. ensures the buffer 
  * does not exhaust memory. larger values decrease chatter back to the caller but also make
@@ -39,16 +38,6 @@ typedef union {
   float number;
   byte bytes[FLOAT_BYTES_LEN];
 } floatbytes;
-
-// structure that gives simultaneous access to double-precision floating-point numbers and their underlying bytes
-typedef union {
-  double number;
-  byte bytes[DOUBLE_BYTES_LEN];
-} doublebytes;
-
-// time epoch values, both seconds and microseconds.
-doublebytes TIME_EPOCH_SECONDS;
-unsigned long TIME_EPOCH_US = 0;
 
 // stepper driver configuration
 const byte STEPPER_DRIVER_NUM_IN_PINS = 1;  // number of pins providing input to the A4988 driver
@@ -97,7 +86,7 @@ const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
-const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 4;  // 1 byte per pin plus 4 bytes (2 for optional disable pin and 2 for optional direction pin, each of which is -1 for no pin)
+const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 8;  // 1 byte per pin plus 2 bytes for optional disable pin, 2 bytes for optional direction pin, and 4 bytes for float scale
 const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;  // one read pin per switch * 4 switches
 
 // command:  step
@@ -110,17 +99,12 @@ const byte CMD_STOP = 3;
 // command:  get current time (us)
 const byte CMD_GET_CURRENT_TIME_US = 4;
 
-// command:  set epoch time
-const byte CMD_SET_EPOCH_TIME = 5;
-
-// command:  get epoch time
-const byte CMD_GET_EPOCH_TIME = 6;
-
 // reusable structure for stepper configuration and drive state
 struct stepper {
   byte identifier;
   byte driver_num_in_pins = STEPPER_DRIVER_NUM_IN_PINS;
   byte driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
+  float float_scale;
   int driver_disable_pin = -1;  // -1 for no disable pin
   bool driver_is_disabled = false;
   int driver_dir_pin = -1;  // -1 for no direction pin
@@ -134,6 +118,7 @@ struct stepper {
   unsigned long us_per_drive_target = 0;  // target drive rate to be obtained via acceleration/deceleration
   unsigned long previous_acceleration_us = 0;  // time of previous acceleration
   unsigned long us_remaining = 0;  // time remaining to complete drives to target
+
   bool is_inited = false;  // whether driver is initialized
 };
 
@@ -234,10 +219,6 @@ void set_float_bytes(byte dest[], byte src[], size_t src_start_idx) {
 
 void write_float(floatbytes f) {
   SerialUART.write(f.bytes, FLOAT_BYTES_LEN);
-}
-
-void write_double(doublebytes d) {
-  SerialUART.write(d.bytes, DOUBLE_BYTES_LEN);
 }
 
 void write_bool(bool value) {
@@ -345,6 +326,8 @@ void init_stepper(stepper* stepper_to_init) {
   if (stepper_to_init->driver_dir_pin >= 0) {
     pinMode(stepper_to_init->driver_dir_pin, OUTPUT);
   }
+
+  stepper_to_init->float_scale = float(bytes_to_unsigned_long(args, stepper_to_init->driver_num_in_pins + 4));
 
   stepper_to_init->is_inited = true;
   write_bool(true);
@@ -571,20 +554,17 @@ void disable_stepper(
 }
 
 /**
- * Get epoch time for a microseconds time value.
+ * Wrapper of memcpy that returns the next starting index to write.
  *
- * @param time_us Time in microseconds (us).
- * @return Double-precision floating-point epoch time.
+ * @param dest Destination array.
+ * @param start Start index within destination array to write.
+ * @param data Data to write.
+ * @param data_len Length of data to write.
+ * @return Next starting index within the destination array.
 */
-double get_epoch_time(unsigned long time_us) {
-
-  double seconds_since_epoch_set = (time_us - TIME_EPOCH_US) / double(US_PER_SEC);
-
-  if (DEBUG) {
-    SerialUSB.println("Seconds since epoch was set:  " + String(seconds_since_epoch_set));
-  }
-
-  return TIME_EPOCH_SECONDS.number + seconds_since_epoch_set;
+size_t memcpy_wrap(byte dest[], size_t start, byte data[], size_t data_len) {
+  memcpy(dest + start, data, data_len);
+  return start + data_len;
 }
 
 /**
@@ -600,28 +580,34 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
       SerialUSB.println("Stepper " + String(stepper_done->identifier) + " done with move " + String(idx) + " at time " + String(done_time_us));
     }
 
+    byte two_bytes[2];
+    byte four_bytes[4];
+
     // form response:  stepper identifier, number of skipped steps, move sequence index, and completion timestamp
-    byte response[STEPPER_DONE_RESPONSE_LEN];
-    response[0] = stepper_done->identifier;
-    size_t memcpy_offset = 1;
-    doublebytes limit_skipped_steps;
-    limit_skipped_steps.number = stepper_done->limit_skipped_drives / double(DRIVES_PER_STEP);
-    memcpy(response + memcpy_offset, limit_skipped_steps.bytes, DOUBLE_BYTES_LEN);
-    memcpy_offset += DOUBLE_BYTES_LEN;
-    byte idx_bytes[2];
-    unsigned_int_to_bytes(idx, idx_bytes);
-    memcpy(response + memcpy_offset, idx_bytes, 2);
-    memcpy_offset += 2;
-    doublebytes done_time_epoch;
-    done_time_epoch.number = get_epoch_time(done_time_us);
-    memcpy(response + memcpy_offset, done_time_epoch.bytes, DOUBLE_BYTES_LEN);
+    byte data[STEPPER_DONE_RESPONSE_LEN];
+    size_t data_idx = 0;
 
-    // buffer the response and check/send responses
-    size_t copy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
-    memcpy(STEPPER_DONE_RESPONSE_BUFFER + copy_start_idx, response, STEPPER_DONE_RESPONSE_LEN);
-    NUM_STEPPER_DONE_RESPONSES_BUFFERED += 1;
-    check_stepper_done_buffer(false);
+    data[data_idx] = stepper_done->identifier;
+    data_idx += 1;
+    
+    unsigned_long_to_bytes((long)stepper_done->limit_skipped_drives * stepper_done->float_scale, four_bytes);
+    data_idx = memcpy_wrap(data, data_idx, four_bytes, 4);
+    
+    unsigned_int_to_bytes(idx, two_bytes);
+    data_idx = memcpy_wrap(data, data_idx, two_bytes, 2);
 
+    unsigned_long_to_bytes(done_time_us, four_bytes);
+    data_idx = memcpy_wrap(data, data_idx, four_bytes, 4);
+
+    if (data_idx == STEPPER_DONE_RESPONSE_LEN) {
+      size_t copy_start_idx = NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN;
+      memcpy(STEPPER_DONE_RESPONSE_BUFFER + copy_start_idx, data, STEPPER_DONE_RESPONSE_LEN);
+      NUM_STEPPER_DONE_RESPONSES_BUFFERED += 1;
+      check_stepper_done_buffer(false);
+    }
+    else if (DEBUG) {
+      SerialUSB.println("Rotary state data index/length mismatch.");
+    }
 }
 
 /** 
@@ -666,8 +652,6 @@ byte top_limit_switch_pin;
 bool limit_switches_inited = false;
 
 void setup() {
-
-  TIME_EPOCH_SECONDS.number = 0.0;
 
   left_stepper.identifier = 0;
   right_stepper.identifier = 1;
@@ -851,21 +835,6 @@ void loop() {
     else if (command == CMD_GET_CURRENT_TIME_US) {
       write_unsigned_long(curr_time_us);
     }
-    else if (command == CMD_SET_EPOCH_TIME) {
-      doublebytes d;
-      SerialUART.readBytes(d.bytes, DOUBLE_BYTES_LEN);
-      TIME_EPOCH_SECONDS.number = d.number;
-      TIME_EPOCH_US = curr_time_us;
-      write_bool(true);
-      if (DEBUG) {
-        SerialUSB.println("Set epoch time:  " + String(d.number));
-      }
-    }
-    else if (command == CMD_GET_EPOCH_TIME) {
-      doublebytes epoch_time;
-      epoch_time.number = get_epoch_time(curr_time_us);
-      write_double(epoch_time);
-    }
   }
 
   // if both steppers are initialized and are at their targets, then attempt to start the next step.
@@ -916,7 +885,6 @@ void loop() {
       if (DEBUG) {
         SerialUSB.println("Done starting step. Deleted step reference.");
       }
-
     }
   }
 }
