@@ -15,6 +15,8 @@ from raspberry_py.gpio.lights import FrameLedStrip, LedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
 
+logger = logging.getLogger(__name__)
+
 setup(gpio.BCM)
 
 STEPPER_FULL_STEPS_PER_REVOLUTION = 200
@@ -79,7 +81,7 @@ gantry = HGantry(
 gantry.id = 'gantry-1'
 app.add_component(gantry)
 
-gantry.event(lambda s: logging.debug(f'Gantry state:  {s}'))
+gantry.event(lambda s: logger.debug(f'Gantry state:  {s}'))
 
 # configure lighting as an event on the gantry state change
 pixels = neopixel.NeoPixel(microcontroller.Pin(int(CkPin.MOSI)), 288 - 15, brightness=0.1, auto_write=False)
@@ -120,7 +122,7 @@ def update_led_strip_on_gantry_update(
             else:
                 led_strip.turn_off()
         except LedStrip.InvalidPixelError as e:
-            logging.error(f'Error while setting LED strip:  {e}')
+            logger.error(f'Error while setting LED strip:  {e}')
         finally:
             led_lock.release()
 

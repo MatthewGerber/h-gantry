@@ -614,6 +614,8 @@ class HGantry(Component):
         self.clear_point_history()
         self.completed_move_points = [(self.x, self.y)]
 
+        logger.info(f'Calibrated:  Width={self.left_right_mm:.1f}mm; Height={self.bottom_top_mm:.1f}mm')
+
     def get_calibration_status(
             self
     ) -> 'HGantry.CalibrationStatus':

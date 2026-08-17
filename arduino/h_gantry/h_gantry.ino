@@ -49,7 +49,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration from a slower speed
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 500;  // fastest driving directly from a dead stop
-const double FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
 
 // Microstep configuration for the A4988
@@ -76,17 +76,17 @@ const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driv
 // };
 // const unsigned long MIN_US_PER_DRIVE = 1000;  // fastest driving with acceleration
 // const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 1e6;  // fastest driving directly from a dead stop
-// const double FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+// const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
 
 // maximum acceleration (us/drive/us):  slowest to fastest within the full-acceleration interval
-const double MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * double(US_PER_SEC));
+const float MAX_DRIVE_ACC_US_PER_DRIVE_PER_US = (MIN_US_PER_DRIVE_FROM_STOPPED - MIN_US_PER_DRIVE) / (FULL_ACCEL_INTERVAL_SEC * float(US_PER_SEC));
 
 // command id and component id
 const size_t CMD_BYTES_LEN = 2;
 
 // command:  init component
 const byte CMD_INIT = 1;
-const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 8;  // 1 byte per pin plus 2 bytes for optional disable pin, 2 bytes for optional direction pin, and 4 bytes for float scale
+const size_t CMD_INIT_STEPPER_ARGS_LEN = STEPPER_DRIVER_NUM_IN_PINS + 8;  // 1 byte per pin plus 2 bytes for optional disable pin, 2 bytes for optional direction pin, and 4 bytes for float scale.
 const size_t CMD_INIT_LIMIT_SWITCHES_ARGS_LEN = 4;  // one read pin per switch * 4 switches
 
 // command:  step
@@ -118,7 +118,6 @@ struct stepper {
   unsigned long us_per_drive_target = 0;  // target drive rate to be obtained via acceleration/deceleration
   unsigned long previous_acceleration_us = 0;  // time of previous acceleration
   unsigned long us_remaining = 0;  // time remaining to complete drives to target
-
   bool is_inited = false;  // whether driver is initialized
 };
 
@@ -328,10 +327,16 @@ void init_stepper(stepper* stepper_to_init) {
   }
 
   stepper_to_init->float_scale = float(bytes_to_unsigned_long(args, stepper_to_init->driver_num_in_pins + 4));
-
   stepper_to_init->is_inited = true;
+
   write_bool(true);
-  
+
+  if (DEBUG) {
+    SerialUSB.println(
+      "Initialized stepper " + String(stepper_to_init->identifier) + "\n"
+      "\tFloat scale:  " + String(stepper_to_init->float_scale)
+    );
+  }
 }
 
 /**
@@ -350,7 +355,7 @@ unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
 
     unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
     if (num_delays > 0) {
-      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / double(num_delays));
+      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
     }
     
     // impose maximum drive rate (minimum delay)
@@ -590,7 +595,7 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
     data[data_idx] = stepper_done->identifier;
     data_idx += 1;
     
-    unsigned_long_to_bytes((long)stepper_done->limit_skipped_drives * stepper_done->float_scale, four_bytes);
+    long_to_bytes(long((stepper_done->limit_skipped_drives / float(DRIVES_PER_STEP)) * stepper_done->float_scale), four_bytes);
     data_idx = memcpy_wrap(data, data_idx, four_bytes, 4);
     
     unsigned_int_to_bytes(idx, two_bytes);
@@ -606,7 +611,7 @@ void write_stepper_done(stepper* stepper_done, unsigned int idx, unsigned long d
       check_stepper_done_buffer(false);
     }
     else if (DEBUG) {
-      SerialUSB.println("Rotary state data index/length mismatch.");
+      SerialUSB.println("Stepper done data index/length mismatch.");
     }
 }
 

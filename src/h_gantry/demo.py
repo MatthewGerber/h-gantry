@@ -11,13 +11,12 @@ from raspberry_py.gpio import setup, cleanup, CkPin
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 
+logger = logging.getLogger(__name__)
 
 def main():
     """
     Gantry demonstration.
     """
-
-    logging.basicConfig(level=logging.INFO, force=True)
 
     setup()
 
@@ -34,7 +33,6 @@ def main():
     )
     locking_serial.synchronize_remote_epoch_time(4)
     locking_serial.manual_buffer = True
-    return
 
     stepper_full_steps_per_revolution = 200
     stepper_output_rotor_ratio = 1.0 / 1.0
@@ -48,7 +46,8 @@ def main():
             direction_pin=6,
             identifier=0,
             serial=locking_serial,
-            asynchronous=True
+            asynchronous=True,
+            float_scale=1000
         ),
         reverse=False
     )
@@ -62,7 +61,8 @@ def main():
             direction_pin=8,
             identifier=1,
             serial=locking_serial,
-            asynchronous=True
+            asynchronous=True,
+            float_scale=1000
         ),
         reverse=False
     )
@@ -77,9 +77,9 @@ def main():
         top_limit_switch_arduino_pin=12,
         arduino_serial=locking_serial,
         timing_pulley_dia_mm=12.97,
-        state_path=os.path.expanduser('~/Desktop/h-gantry-state.json')
+        state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle')
     )
-    gantry.event(lambda s: logging.debug(f'Gantry position:  {s}'))
+    gantry.event(lambda s: logger.debug(f'Gantry position:  {s}'))
 
     gantry.start()
 
@@ -88,7 +88,9 @@ def main():
     # gantry.move_to_offset(0.0, 20.0, 150.0, False, False)
     # gantry.move_to_point(gantry.left_right_mm, gantry.y, 150.0, False, False)
     # gantry.center(150.0, True, False)
-    # gantry.move_to_offset(30.0, 0.0, 100.0, True, False)
+    # gantry.move_to_offset(30.0, 0.0, 100.0,  True)
+    # time.sleep(1.0)
+    # gantry.move_to_left_limit(100.0, 100.0)
     # gantry.set_state(cast(HGantry.State, gantry.state).set(calibration_status=HGantry.CalibrationStatus.CALIBRATING))
     # gantry.move_to_top_limit(100.0, 100.0)
     # gantry.move_to_offset(10.0, 0.0, 100.0, True, False)
@@ -100,7 +102,7 @@ def main():
     # gantry.move_to_point(gantry.left_right_mm, gantry.y, 100.0, True, False)
     # gantry.move_to_offset(0.0, -10.0, 10.0, True, True)
     # gantry.move_to_offset(0.0, 0.0, 1.0, True)
-    # gantry.calibrate(150.0)
+    gantry.calibrate(125.0)
     # gantry.center(150.0, True, True)
     # gantry.move_to_top_limit(10.0)
     # circle_points = generate_circle_points(gantry.x, gantry.y, 50.0, 0.5)
