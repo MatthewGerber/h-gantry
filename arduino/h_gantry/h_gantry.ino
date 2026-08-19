@@ -849,7 +849,7 @@ void loop() {
 
     // if the buffer is low/empty, then force-flush the stepper done buffer. the caller might 
     // be waiting on this signal that the buffer is low before sending more moves.
-    if (steps_len <= MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER) {
+    if (steps_len < MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER) {
       check_stepper_done_buffer(true);
     }
 

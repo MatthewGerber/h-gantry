@@ -1,4 +1,5 @@
 import io
+import itertools
 import logging
 import math
 import os.path
@@ -24,7 +25,6 @@ from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
 from raspberry_py.rest.application import RpyFlask, CallImageBytes
 from raspberry_py.utils import get_base_64_str
-
 
 logger = logging.getLogger(__name__)
 
@@ -766,13 +766,12 @@ class HGantry(Component):
             distance_mm = HGantry.get_distance_to_offset(move_x_mm, move_y_mm)
             time_to_step = timedelta(seconds=distance_mm / mm_per_sec)
 
-            # estimate the starting time of the move. this will be after the newest move (most recent; last to finish)
-            # if any moves exist. if no moves exist, then the current move will start at the current time.
-            fifo_moves = self.get_fifo_moves()
-            if len(fifo_moves) > 0:
-                start_time_epoch = fifo_moves[-1].end_time_epoch
-            else:
+            # estimate the starting time of the move. if there are no moves, then the current move will start at the
+            # current time. if there are moves, then the current move will start after the last move that will finish.
+            if next_and_last_moves := self.get_moves_finishing_next_and_last() is None:
                 start_time_epoch = time()
+            else:
+                start_time_epoch = next_and_last_moves[1].end_time_epoch
 
             move_idx = self.move_idx
             self.move_idx += 1
@@ -829,35 +828,43 @@ class HGantry(Component):
 
         current_time_epoch = time()
 
-        fifo_moves = self.get_fifo_moves()
+        with self.move_lock:
+            next_and_last_moves = self.get_moves_finishing_next_and_last()
+            if next_and_last_moves is None:
+                next_move_to_finish = last_move_to_finish = None
+            else:
+                next_move_to_finish, last_move_to_finish = next_and_last_moves
 
         # if there are no moves, then the x/y position will reflect the current position.
-        if len(fifo_moves) == 0:
+        if next_move_to_finish is None:
             with self.move_lock:
                 curr_x, curr_y = self.x, self.y
 
         # if all moves are in the future, then the actual x/y positions that we track are the most accurate estimate of
         # the current location. this should not be generally possible, as time only moves forward from the creation of
         # each move.
-        elif current_time_epoch < fifo_moves[0].start_time_epoch:
+        elif current_time_epoch < next_move_to_finish.start_time_epoch:
             with self.move_lock:
                 curr_x, curr_y = self.actual_x, self.actual_y
 
         # if all moves are in the past, then they should all be complete, and the best estimate is the final move
         # position.
-        elif current_time_epoch >= fifo_moves[-1].end_time_epoch:
-            final_move = fifo_moves[-1]
-            curr_x, curr_y = final_move.to_x_mm, final_move.to_y_mm
+        elif current_time_epoch >= last_move_to_finish.end_time_epoch:
+            curr_x, curr_y = last_move_to_finish.to_x_mm, last_move_to_finish.to_y_mm
 
         # otherwise, we're in the middle of a move. find it and estimate our progress through it.
         else:
-            curr_move = next(
-                (
-                    move
-                    for move in fifo_moves
-                    if move.start_time_epoch <= current_time_epoch < move.end_time_epoch
+            with self.move_lock:
+                curr_move = next(
+                    (
+                        move
+                        for move in itertools.chain(
+                            iter(self.moves_pending_in_arduino),
+                            iter(self.moves_pending_in_python)
+                        )
+                        if move.start_time_epoch <= current_time_epoch < move.end_time_epoch
+                    )
                 )
-            )
             fraction_through_curr_move = (
                 (current_time_epoch - curr_move.start_time_epoch) /
                 (curr_move.end_time_epoch - curr_move.start_time_epoch)
@@ -956,13 +963,16 @@ class HGantry(Component):
 
     def get_move_to_read_from_arduino(
             self,
-            clear_move_buffers: bool
+            anywhere_in_pipeline: bool
     ) -> Optional[Move]:
         """
         Get a move to read from Arduino.
 
-        :param clear_move_buffers: Whether move buffers should be cleared.
-        :return: Move to read, or None if there is no move.
+        :param anywhere_in_pipeline: If True, then a move will be returned if there is one anywhere in the pipeline. In
+        this case, the caller can safely block while waiting for the returned move's bytes to come back from Arduino. If
+        False, then a move is only returned if bytes are waiting to be read. This is an opportunistic mode that only
+        returns a move if one can be read from Arduino at the present time.
+        :return: Move to read, or None if there is no move to read.
         """
 
         move = None
@@ -971,18 +981,20 @@ class HGantry(Component):
 
             # check whether we're ready to read a move
             ready = False
+
+            # always ready if there are bytes waiting to be read
             if self.arduino_serial.connection.in_waiting > 0:
                 ready = True
-            elif clear_move_buffers:
-                moves_pending = len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0
-                if moves_pending:
+
+            # otherwise, we're ready to read a move if there is at least one pending in the pipeline.
+            elif anywhere_in_pipeline:
+                if self.has_moves_in_pipeline():
                     self.send_moves_to_arduino(True)
                     ready = True
 
-            # get next move that will come back from arduino. we cannot be in a situation where the arduino buffer is
-            # empty, since either (1) there are bytes waiting, or (2) we're clearing and there's a move somewhere in the
-            # pipeline. in case (2), there will be a move in the arduino buffer because we just sent moves above, and we
-            # will have placed at least one move into the arduino buffer.
+            # if we're ready, then return a move. we cannot be in a situation where this buffer is empty, since either
+            # (1) there are bytes waiting, or (2) there's a move pending in the pipeline. in case (2), there will be a
+            # move in the arduino buffer because we just sent moves to arduino if needed.
             if ready:
                 move = self.moves_pending_in_arduino[0]
 
@@ -1088,11 +1100,11 @@ class HGantry(Component):
 
         # do not permit concurrent reads, as this can mix up the driver return sequence identifiers. block if the caller
         # is requesting to clear the move buffers, since whoever might already be holding the lock might not be clearing
-        # them, and we must honor the caller's desire to clear.
+        # them, and we must honor the caller's desire to clear the buffers before returning.
         driver_read_lock_acquired = self.driver_read_lock.acquire(blocking=clear_move_buffers)
         if driver_read_lock_acquired:
             try:
-                while (move := self.get_move_to_read_from_arduino(clear_move_buffers)) is not None:
+                while move := self.get_move_to_read_from_arduino(clear_move_buffers) is not None:
 
                     (
                         left_stepper_elapsed_seconds,
@@ -1142,6 +1154,9 @@ class HGantry(Component):
 
                         # set the state with the actual values
                         self.set_state(cast(HGantry.State, self.state).set(x=self.actual_x, y=self.actual_y))
+
+                        # adjust the estimated completion time of each move in the pipeline
+
 
                         self.completed_move_points.append((self.actual_x, self.actual_y))
 
@@ -1563,13 +1578,52 @@ class HGantry(Component):
             self
     ) -> List[Move]:
         """
-        Get moves in FIFO order with the one finishing first being first in the returned list.
+        Get moves in FIFO order with the one finishing first being first in the returned list. This is not space/time
+        efficient, as it creates a shallow list copy of the current moves.
 
         :return: List of Move objects.
         """
 
         with self.move_lock:
             return list(self.moves_pending_in_arduino) + self.moves_pending_in_python
+
+    def get_moves_finishing_next_and_last(
+            self
+    ) -> Optional[Tuple[Move, Move]]:
+        """
+        Get the moves that will finish next and last.
+
+        :return: 2-tuple of (1) move that will finish next and (2) move that will finish last. Will be None if there are
+        no moves.
+        """
+
+        with self.move_lock:
+            if self.has_moves_in_pipeline():
+                next_move = (
+                    self.moves_pending_in_arduino[0] if len(self.moves_pending_in_arduino) > 0
+                    else self.moves_pending_in_python[0]
+                )
+                last_move = (
+                    self.moves_pending_in_python[-1] if len(self.moves_pending_in_python) > 0
+                    else self.moves_pending_in_arduino[-1]
+                )
+                return_value = next_move, last_move
+            else:
+                return_value = None
+
+            return return_value
+
+    def has_moves_in_pipeline(
+            self
+    ) -> int:
+        """
+        Get whether there are any moves in the pipeline (in Python or Arduino).
+
+        :return: True if there are moves and False otherwise.
+        """
+
+        with self.move_lock:
+            return len(self.moves_pending_in_python) + len(self.moves_pending_in_arduino) > 0
 
     def get_line_plot(
             self
