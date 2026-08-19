@@ -773,6 +773,10 @@ void loop() {
   // process a commands sent over the serial connection
   while (SerialUART.available()) {
 
+    if (DEBUG) {
+      SerialUSB.println("New command available.");
+    }
+
     byte command_bytes[CMD_BYTES_LEN];
     SerialUART.readBytes(command_bytes, CMD_BYTES_LEN);
     byte command = command_bytes[0];

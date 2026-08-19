@@ -294,7 +294,7 @@ class HGantry(Component):
         # from multiple threads (e.g., async calls from rest api).
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
-        self.min_moves_pending_in_arduino = 5  # keep moves in arduino to maintain momentum
+        self.min_moves_pending_in_arduino = 10  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
         self.max_moves_pending_in_arduino = 50  # arduino has limited memory for its move buffer
         self.completed_move_points: List[Tuple[float, float]] = []
         self.actual_x = self.x  # self.x reflects pending moves, whereas self.actual_x reflects completed moves.
@@ -768,7 +768,7 @@ class HGantry(Component):
 
             # estimate the starting time of the move. if there are no moves, then the current move will start at the
             # current time. if there are moves, then the current move will start after the last move that will finish.
-            if next_and_last_moves := self.get_moves_finishing_next_and_last() is None:
+            if (next_and_last_moves := self.get_moves_finishing_next_and_last()) is None:
                 start_time_epoch = time()
             else:
                 start_time_epoch = next_and_last_moves[1].end_time_epoch
@@ -1104,7 +1104,7 @@ class HGantry(Component):
         driver_read_lock_acquired = self.driver_read_lock.acquire(blocking=clear_move_buffers)
         if driver_read_lock_acquired:
             try:
-                while move := self.get_move_to_read_from_arduino(clear_move_buffers) is not None:
+                while (move := self.get_move_to_read_from_arduino(clear_move_buffers)) is not None:
 
                     (
                         left_stepper_elapsed_seconds,
@@ -1410,7 +1410,7 @@ class HGantry(Component):
         )
 
         self.move_to_points(
-            list(zip(g.x, g.y)),
+            list(zip(g.x, g.y, strict=True)),
             mm_per_sec,
             return_to_current_position,
             block,
@@ -1641,7 +1641,7 @@ class HGantry(Component):
         # need exclusive access to plotting to prevent concurrent calls from interfering with each other
         with self.plot_lock:
             plt.plot(
-                *zip(*completed_move_points),
+                *zip(*completed_move_points, strict=True),
                 linestyle='-',
                 marker='.',
                 markersize=0.05,
@@ -1652,7 +1652,8 @@ class HGantry(Component):
                     *[
                         (m.to_x_mm, m.to_y_mm)
                         for m in pending_moves
-                    ]
+                    ],
+                    strict=True
                 ),
                 linestyle='-',
                 marker='o',
