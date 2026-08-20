@@ -279,6 +279,7 @@ void add_step(
 
   steps_len += 1;
 
+  SerialUSB.println("Added new step " + String(new_step->idx) + ":  left drives=" + String(new_step->left_stepper_num_drives) + ", right drives=" + String(new_step->right_stepper_num_drives));
 }
 
 /**
@@ -428,12 +429,22 @@ void start_stepper(
     if (changing_direction) {
       stepper_to_start->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
     }
-    /* otherwise, maintain the current drive rate and accelerate/decelerate from this rate. we might be starting
-     * from a dead stop or a very low rate, so use the min between this value and the minimum delay from a dead
-     * stop. we'll accelerate/decelerate from this value.
+    /* otherwise, maintain the drive rate and accelerate/decelerate from this rate. 
     */
     else {
-      stepper_to_start->us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, stepper_to_start->us_per_drive);
+
+      /* maintain the prior drive rate, but only if this is feasible given how much time has elapsed since the 
+       * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the 
+       * fastest we can expect to drive while keeping momentum.
+      */  
+      initial_us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
+
+      /* we might be starting from a dead stop or a very low rate, so use the min between this value and the 
+       * minimum delay from a dead stop. we'll accelerate/decelerate from this value.
+      */
+      initial_us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, initial_us_per_drive);
+
+      stepper_to_start->us_per_drive = initial_us_per_drive;
     }
 
     stepper_to_start->previous_drive_us = curr_time_us;
@@ -542,6 +553,15 @@ void drive_stepper(
       write_stepper_done(stepper_to_drive, curr_step_idx, curr_time_us);
     }
   }
+}
+
+void pause_stepper(stepper* stepper_to_pause) {
+  stepper_to_pause->is_paused = true;
+}
+
+void resume_stepper(stepper* stepper_to_resume) {
+  stepper_to_resume->is_paused = false;
+  stepper_to_resume->us_per_drive_target = MIN_US_PER_DRIVE_FROM_STOPPED;
 }
 
 /**
@@ -677,7 +697,7 @@ void loop() {
   unsigned long curr_time_us = micros();
 
   // process the current step command if everything is initialized
-  if (left_stepper.is_inited && right_stepper.is_inited && limit_switches_inited) {
+  if (left_stepper.is_inited && !left_stepper.is_paused && right_stepper.is_inited && !right_stepper.is_paused && limit_switches_inited) {
 
     /* check whether the cart is moving left, right, up, and down. this calculation is 
      * based on the following equations:
@@ -832,6 +852,14 @@ void loop() {
       else {
         SerialUSB.println("Invalid step received.");
       }
+    }
+    else if (command == CMD_PAUSE) {
+      pause_stepper(&left_stepper);
+      pause_stepper(&right_stepper);
+    }
+    else if (command == CMD_RESUME) {
+      resume_stepper(&left_stepper);
+      resume_stepper(&right_stepper);
     }
     else if (command == CMD_STOP) {
       if (component_id == left_stepper.identifier && left_stepper.is_inited) {
