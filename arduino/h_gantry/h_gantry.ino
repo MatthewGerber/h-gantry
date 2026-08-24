@@ -99,6 +99,10 @@ const byte CMD_STOP = 3;
 // command:  get current time (us)
 const byte CMD_GET_CURRENT_TIME_US = 4;
 
+const byte CMD_PAUSE = 5;
+
+const byte CMD_RESUME = 6;
+
 // reusable structure for stepper configuration and drive state
 struct stepper {
   byte identifier;
@@ -119,6 +123,7 @@ struct stepper {
   unsigned long previous_acceleration_us = 0;  // time of previous acceleration
   unsigned long us_remaining = 0;  // time remaining to complete drives to target
   bool is_inited = false;  // whether driver is initialized
+  bool is_paused = false; // whether driver is paused
 };
 
 stepper left_stepper;
@@ -437,7 +442,7 @@ void start_stepper(
        * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the 
        * fastest we can expect to drive while keeping momentum.
       */  
-      initial_us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
+      unsigned long initial_us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
 
       /* we might be starting from a dead stop or a very low rate, so use the min between this value and the 
        * minimum delay from a dead stop. we'll accelerate/decelerate from this value.
@@ -467,6 +472,12 @@ void accelerate_stepper(
   unsigned long curr_time_us
 ) {
 
+  // if the target is faster than the min-from-stopped rate, and the current rate is slower, then we can accelerate directly to the
+  // min-from-stopped rate.
+  if (stepper_to_acc->us_per_drive_target < MIN_US_PER_DRIVE_FROM_STOPPED && MIN_US_PER_DRIVE_FROM_STOPPED < stepper_to_acc->us_per_drive) {
+      stepper_to_acc->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
+      stepper_to_acc->previous_acceleration_us = curr_time_us;
+  }
   // reduce stepper delay to target delay limited by maximum acceleration
   if (stepper_to_acc->us_per_drive > stepper_to_acc->us_per_drive_target) {
 
@@ -486,7 +497,7 @@ void accelerate_stepper(
       stepper_to_acc->previous_acceleration_us = curr_time_us;
 
       // if we've achieved the target delay, then recalculate the target delay to make up for time lost 
-      // due to the acceleration interval, when the stepper was not operating at the ideal delay.
+      // due to the acceleration interval, when the stepper was not operating at the target delay.
       if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
         stepper_to_acc->us_per_drive_target = get_drive_delay_target(stepper_to_acc);
       }
@@ -539,15 +550,25 @@ void drive_stepper(
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
 
-    // otherwise, drive the next index in the sequence.
+    // otherwise, drive and accelerate.
     else {
+
+      // drive the next index in the sequence
       byte drive_sequence_idx = mod(stepper_to_drive->drive_idx, DRIVE_SEQUENCE_LEN);
       for (byte pin_idx = 0; pin_idx < stepper_to_drive->driver_num_in_pins; ++pin_idx) {
         digitalWrite(stepper_to_drive->driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
       }
-    }
+      stepper_to_drive->previous_drive_us = curr_time_us;
 
-    stepper_to_drive->previous_drive_us = curr_time_us;
+      /* set the current drive rate to the empirical rate. ideally, the empirical elapsed time 
+       * will equal the drive delay. this will usually be quite close, since the arduino loop
+       * is very fast. this might not be true when serial read/write happens, which is slow.
+       * it will also not be true if we hit a limit switch, stop, and then move away from it.
+      */
+      stepper_to_drive->us_per_drive = us_elapsed_since_previous_drive;
+
+      accelerate_stepper(stepper_to_drive, curr_time_us);
+    }    
 
     if (stepper_to_drive->drives_remaining == 0) {
       write_stepper_done(stepper_to_drive, curr_step_idx, curr_time_us);
@@ -783,7 +804,6 @@ void loop() {
       (moving_up && !digitalRead(top_limit_switch_pin))
     );
 
-    accelerate_stepper(&left_stepper, curr_time_us);
     drive_stepper(&left_stepper, limited_travel, curr_time_us);
 
     accelerate_stepper(&right_stepper, curr_time_us);
