@@ -234,6 +234,20 @@ void write_byte(byte value) {
 }
 
 /**
+ * Wrapper of memcpy that returns the next starting index to write.
+ *
+ * @param dest Destination array.
+ * @param start Start index within destination array to write.
+ * @param data Data to write.
+ * @param data_len Length of data to write.
+ * @return Next starting index within the destination array.
+*/
+size_t memcpy_wrap(byte dest[], size_t start, byte data[], size_t data_len) {
+  memcpy(dest + start, data, data_len);
+  return start + data_len;
+}
+
+/**
  * True modulo operator that wraps to the maximum value for negative numbers. The standard
  * C/Arduino behavior of % is the remainder operator, which takes the sign of the dividend.
  * When the dividend is negative, the remainder is also negative, which does not work when
@@ -284,7 +298,9 @@ void add_step(
 
   steps_len += 1;
 
-  SerialUSB.println("Added new step " + String(new_step->idx) + ":  left drives=" + String(new_step->left_stepper_num_drives) + ", right drives=" + String(new_step->right_stepper_num_drives));
+  if (DEBUG) {
+    SerialUSB.println("Added new step " + String(new_step->idx) + ":  left drives=" + String(new_step->left_stepper_num_drives) + ", right drives=" + String(new_step->right_stepper_num_drives));
+  }
 }
 
 /**
@@ -413,6 +429,7 @@ void start_stepper(
       stepper_to_start->driver_is_disabled = false;
     }
 
+    // set drive parameters
     stepper_to_start->drive_idx = mod(stepper_to_start->drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     stepper_to_start->drive_target = stepper_to_start->drive_idx + num_drives;
     stepper_to_start->drives_remaining = stepper_to_start->drive_target - stepper_to_start->drive_idx;
@@ -441,15 +458,8 @@ void start_stepper(
       /* maintain the prior drive rate, but only if this is feasible given how much time has elapsed since the 
        * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the 
        * fastest we can expect to drive while keeping momentum.
-      */  
-      unsigned long initial_us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
-
-      /* we might be starting from a dead stop or a very low rate, so use the min between this value and the 
-       * minimum delay from a dead stop. we'll accelerate/decelerate from this value.
       */
-      initial_us_per_drive = min(MIN_US_PER_DRIVE_FROM_STOPPED, initial_us_per_drive);
-
-      stepper_to_start->us_per_drive = initial_us_per_drive;
+      stepper_to_start->us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
     }
 
     stepper_to_start->previous_drive_us = curr_time_us;
@@ -545,7 +555,9 @@ void drive_stepper(
       stepper_to_drive->us_remaining = 0;
     }
 
-    // if travel is limited, then do not drive the stepper but record the skipped increment for reporting back to the caller.
+    /* if travel is limited, then do not drive the stepper but record the skipped 
+     * increment for reporting back to the caller.
+    */
     if (limited_travel) {
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
@@ -576,17 +588,32 @@ void drive_stepper(
   }
 }
 
+/**
+ * Pause a stepper, which prevents it from driving until it is resumed.
+ * 
+ * @param stepper_to_pause Stepper to pause.
+*/
 void pause_stepper(stepper* stepper_to_pause) {
   stepper_to_pause->is_paused = true;
-}
-
-void resume_stepper(stepper* stepper_to_resume) {
-  stepper_to_resume->is_paused = false;
-  stepper_to_resume->us_per_drive_target = MIN_US_PER_DRIVE_FROM_STOPPED;
+  if (DEBUG) {
+    SerialUSB.println("Paused stepper " + String(stepper_to_pause->identifier) + ".");
+  }
 }
 
 /**
- * Disable a stepper, which cuts current and lets its coils cool.
+ * Resume driving a stepper.
+ * 
+ * @param stepper_to_resume Stepper to resume.
+*/
+void resume_stepper(stepper* stepper_to_resume) {
+  stepper_to_resume->is_paused = false;
+  if (DEBUG) {
+    SerialUSB.println("Resumed stepper " + String(stepper_to_resume->identifier) + ".");
+  }
+}
+
+/**
+ * Disable a stepper, which cuts current and lets its coils cool. Must call start_stepper to reenergize it.
  *
  * @param stepper_to_disable Stepper to disable.
 */
@@ -597,20 +624,6 @@ void disable_stepper(
     digitalWrite(stepper_to_disable->driver_disable_pin, HIGH);
     stepper_to_disable->driver_is_disabled = true;
   }
-}
-
-/**
- * Wrapper of memcpy that returns the next starting index to write.
- *
- * @param dest Destination array.
- * @param start Start index within destination array to write.
- * @param data Data to write.
- * @param data_len Length of data to write.
- * @return Next starting index within the destination array.
-*/
-size_t memcpy_wrap(byte dest[], size_t start, byte data[], size_t data_len) {
-  memcpy(dest + start, data, data_len);
-  return start + data_len;
 }
 
 /**
@@ -805,8 +818,6 @@ void loop() {
     );
 
     drive_stepper(&left_stepper, limited_travel, curr_time_us);
-
-    accelerate_stepper(&right_stepper, curr_time_us);
     drive_stepper(&right_stepper, limited_travel, curr_time_us);
   }
 
@@ -852,12 +863,12 @@ void loop() {
 
       // left stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       long left_stepper_num_drives = bytes_to_int(args, 2) * DRIVES_PER_STEP;
-      unsigned long left_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 4)) * 1000;
+      unsigned long left_stepper_us_to_drive = (unsigned long)(bytes_to_unsigned_int(args, 4) * left_stepper.float_scale);
       unsigned int left_stepper_step_idx = bytes_to_unsigned_int(args, 6);
 
       // right stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       long right_stepper_num_drives = bytes_to_int(args, 10) * DRIVES_PER_STEP;
-      unsigned long right_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 12)) * 1000;
+      unsigned long right_stepper_us_to_drive = (unsigned long)(bytes_to_unsigned_int(args, 12) * right_stepper.float_scale);
       unsigned int right_stepper_step_idx = bytes_to_unsigned_int(args, 14);
 
       // indices must be the same; otherwise, we're out of sync with the caller. us to drive must also be the same, since the steppers always move in tandem.
@@ -869,7 +880,7 @@ void loop() {
           left_stepper_step_idx  // same as right
         );
       }
-      else {
+      else if (DEBUG) {
         SerialUSB.println("Invalid step received.");
       }
     }

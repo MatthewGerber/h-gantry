@@ -199,6 +199,8 @@ class HGantry(Component):
 
         INIT_LIMIT_SWITCHES = 1
         STEP = 2
+        PAUSE = 5
+        RESUME = 6
 
     class ComponentId(IntEnum):
         """
@@ -416,12 +418,12 @@ class HGantry(Component):
         self.left_stepper.start()
         self.right_stepper.start()
         limit_switches_inited = bool(self.arduino_serial.write_then_read(
-            HGantry.Command.INIT_LIMIT_SWITCHES.to_bytes(1) +
-            HGantry.ComponentId.LIMIT_SWITCHES.to_bytes(1) +
-            self.left_limit_switch_arduino_pin.to_bytes(1) +
-            self.right_limit_switch_arduino_pin.to_bytes(1) +
-            self.bottom_limit_switch_arduino_pin.to_bytes(1) +
-            self.top_limit_switch_arduino_pin.to_bytes(1),
+            HGantry.Command.INIT_LIMIT_SWITCHES.to_bytes(1, signed=False) +
+            HGantry.ComponentId.LIMIT_SWITCHES.to_bytes(1, signed=False) +
+            self.left_limit_switch_arduino_pin.to_bytes(1, signed=False) +
+            self.right_limit_switch_arduino_pin.to_bytes(1, signed=False) +
+            self.bottom_limit_switch_arduino_pin.to_bytes(1, signed=False) +
+            self.top_limit_switch_arduino_pin.to_bytes(1, signed=False),
             True,
             1,
             False
@@ -891,8 +893,8 @@ class HGantry(Component):
             # send step command for the joint action of the two steppers, plus a dummy component that will be ignored.
             # the steppers will send their step commands next, which the arduino will process jointly.
             self.arduino_serial.write_then_read(
-                HGantry.Command.STEP.to_bytes(1) +
-                (0).to_bytes(1),
+                HGantry.Command.STEP.to_bytes(1, signed=False) +
+                (0).to_bytes(1, signed=False),  # ignored component id
                 False,
                 0,
                 False
@@ -964,6 +966,36 @@ class HGantry(Component):
                     f'Sent {len(moves_to_send)} move(s) to Arduino. {len(self.moves_pending_in_python)} pending moves '
                     f'remain in Python.'
                 )
+
+    def pause_steppers(
+            self
+    ):
+        """
+        Pause the steppers.
+        """
+
+        self.arduino_serial.write_then_read(
+            HGantry.Command.PAUSE.to_bytes(1, signed=False) +
+            (0).to_bytes(1, signed=False),  # ignored component id
+            False,
+            0,
+            False
+        )
+
+    def resume_steppers(
+            self
+    ):
+        """
+        Resume the steppers.
+        """
+
+        self.arduino_serial.write_then_read(
+            HGantry.Command.RESUME.to_bytes(1, signed=False) +
+            (0).to_bytes(1, signed=False),  # ignored component id
+            False,
+            0,
+            False
+        )
 
     def get_move_to_read_from_arduino(
             self,
