@@ -949,16 +949,15 @@ class HGantry(Component):
 
             if python_has_moves and max_num_moves_to_send > 0:
 
+                # write all command bytes
                 self.pause_steppers()
-
                 moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:
                     self.send_move_to_arduino(move_to_send)
+                self.resume_steppers()
 
                 # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
-
-                self.resume_steppers()
 
                 self.moves_pending_in_python = self.moves_pending_in_python[max_num_moves_to_send:]
 

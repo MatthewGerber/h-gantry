@@ -99,16 +99,18 @@ const byte CMD_STOP = 3;
 // command:  get current time (us)
 const byte CMD_GET_CURRENT_TIME_US = 4;
 
-const byte CMD_PAUSE = 5;
+// command:  pause the steppers
+const byte CMD_PAUSE_STEPPERS = 5;
 
-const byte CMD_RESUME = 6;
+// command:  resume the steppers
+const byte CMD_RESUME_STEPPERS = 6;
 
 // reusable structure for stepper configuration and drive state
 struct stepper {
   byte identifier;
   byte driver_num_in_pins = STEPPER_DRIVER_NUM_IN_PINS;
   byte driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
-  float float_scale;
+  float float_scale;  // fixed-point scaling factor for serializing float-poing values
   int driver_disable_pin = -1;  // -1 for no disable pin
   bool driver_is_disabled = false;
   int driver_dir_pin = -1;  // -1 for no direction pin
@@ -129,7 +131,7 @@ struct stepper {
 stepper left_stepper;
 stepper right_stepper;
 
-/* fifo linked list of steps to take, acting as a read buffer. each step determines
+/* linked list of steps to take, acting as a read buffer. each step determines
  * how the left and right steppers should move in tandem.
 */
 struct step {
@@ -350,7 +352,6 @@ void init_stepper(stepper* stepper_to_init) {
 
   stepper_to_init->float_scale = float(bytes_to_unsigned_long(args, stepper_to_init->driver_num_in_pins + 4));
   stepper_to_init->is_inited = true;
-
   write_bool(true);
 
   if (DEBUG) {
@@ -451,14 +452,11 @@ void start_stepper(
     if (changing_direction) {
       stepper_to_start->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
     }
-    /* otherwise, maintain the drive rate and accelerate/decelerate from this rate. 
+    /* otherwise, maintain the prior drive rate, but only if this is feasible given how much time has elapsed since the
+     * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the fastest we can
+     * expect to drive while keeping momentum.
     */
     else {
-
-      /* maintain the prior drive rate, but only if this is feasible given how much time has elapsed since the 
-       * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the 
-       * fastest we can expect to drive while keeping momentum.
-      */
       stepper_to_start->us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
     }
 
@@ -482,12 +480,13 @@ void accelerate_stepper(
   unsigned long curr_time_us
 ) {
 
-  // if the target is faster than the min-from-stopped rate, and the current rate is slower, then we can accelerate directly to the
-  // min-from-stopped rate.
+  // if the target is faster than the min-from-stopped rate, and the current rate is slower, then we can accelerate
+  // directly to the min-from-stopped rate.
   if (stepper_to_acc->us_per_drive_target < MIN_US_PER_DRIVE_FROM_STOPPED && MIN_US_PER_DRIVE_FROM_STOPPED < stepper_to_acc->us_per_drive) {
       stepper_to_acc->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
       stepper_to_acc->previous_acceleration_us = curr_time_us;
   }
+
   // reduce stepper delay to target delay limited by maximum acceleration
   if (stepper_to_acc->us_per_drive > stepper_to_acc->us_per_drive_target) {
 
@@ -863,12 +862,12 @@ void loop() {
 
       // left stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       long left_stepper_num_drives = bytes_to_int(args, 2) * DRIVES_PER_STEP;
-      unsigned long left_stepper_us_to_drive = (unsigned long)(bytes_to_unsigned_int(args, 4) * left_stepper.float_scale);
+      unsigned long left_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 4)) * 1000;
       unsigned int left_stepper_step_idx = bytes_to_unsigned_int(args, 6);
 
       // right stepper:  calculate number of drives. skip the first two bytes sent by the stepper, which are the step command and stepper identifier.
       long right_stepper_num_drives = bytes_to_int(args, 10) * DRIVES_PER_STEP;
-      unsigned long right_stepper_us_to_drive = (unsigned long)(bytes_to_unsigned_int(args, 12) * right_stepper.float_scale);
+      unsigned long right_stepper_us_to_drive = ((unsigned long)bytes_to_unsigned_int(args, 12)) * 1000;
       unsigned int right_stepper_step_idx = bytes_to_unsigned_int(args, 14);
 
       // indices must be the same; otherwise, we're out of sync with the caller. us to drive must also be the same, since the steppers always move in tandem.
@@ -884,11 +883,11 @@ void loop() {
         SerialUSB.println("Invalid step received.");
       }
     }
-    else if (command == CMD_PAUSE) {
+    else if (command == CMD_PAUSE_STEPPERS) {
       pause_stepper(&left_stepper);
       pause_stepper(&right_stepper);
     }
-    else if (command == CMD_RESUME) {
+    else if (command == CMD_RESUME_STEPPERS) {
       resume_stepper(&left_stepper);
       resume_stepper(&right_stepper);
     }
