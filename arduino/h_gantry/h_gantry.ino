@@ -110,7 +110,7 @@ struct stepper {
   byte identifier;
   byte driver_num_in_pins = STEPPER_DRIVER_NUM_IN_PINS;
   byte driver_pins[STEPPER_DRIVER_NUM_IN_PINS];
-  float float_scale;  // fixed-point scaling factor for serializing float-poing values
+  float float_scale;  // fixed-point scaling factor for serializing floating-point values
   int driver_disable_pin = -1;  // -1 for no disable pin
   bool driver_is_disabled = false;
   int driver_dir_pin = -1;  // -1 for no direction pin
@@ -394,7 +394,7 @@ unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
 }
 
 /**
- * Start a stepper.
+ * Start driving a stepper for a specified movement.
  *
  * @param stepper_to_start Stepper to start.
  * @param num_drives Number of drives (signed per direction).
@@ -430,34 +430,28 @@ void start_stepper(
       stepper_to_start->driver_is_disabled = false;
     }
 
-    // set drive parameters
+    // set drive distance parameters
     stepper_to_start->drive_idx = mod(stepper_to_start->drive_idx, DRIVE_SEQUENCE_LEN);  // mod initial drive idx to avoid overflow
     stepper_to_start->drive_target = stepper_to_start->drive_idx + num_drives;
     stepper_to_start->drives_remaining = stepper_to_start->drive_target - stepper_to_start->drive_idx;
     int previous_drive_increment = stepper_to_start->drive_increment;
     stepper_to_start->drive_increment = num_drives > 0 ? 1 : -1;
-    bool changing_direction = stepper_to_start->drive_increment != previous_drive_increment;
+    stepper_to_start->limit_skipped_drives = 0;
+
+    // set drive time and target rate
+    stepper_to_start->us_remaining = us_to_drive;
+    stepper_to_start->us_per_drive_target = get_drive_delay_target(stepper_to_start);
 
     // set the direction
     if (stepper_to_start->driver_dir_pin >= 0) {
       digitalWrite(stepper_to_start->driver_dir_pin, stepper_to_start->drive_increment < 0 ? LOW : HIGH);
     }
-    stepper_to_start->limit_skipped_drives = 0;
-    stepper_to_start->us_remaining = us_to_drive;
-    stepper_to_start->us_per_drive_target = get_drive_delay_target(stepper_to_start);
 
     /* if we're changing direction, then set the drive speed to the fastest permissible from a stopped position. we'll accelerate
      * (per limit) or decelerate (instantaneously) from this speed upon the next acceleration.
     */
-    if (changing_direction) {
+    if (stepper_to_start->drive_increment != previous_drive_increment) {
       stepper_to_start->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
-    }
-    /* otherwise, maintain the prior drive rate, but only if this is feasible given how much time has elapsed since the
-     * previous drive. if more time has elapsed than the prior drive rate, then this elapsed time is the fastest we can
-     * expect to drive while keeping momentum.
-    */
-    else {
-      stepper_to_start->us_per_drive = max(curr_time_us - stepper_to_start->previous_drive_us, stepper_to_start->us_per_drive);
     }
 
     stepper_to_start->previous_drive_us = curr_time_us;
@@ -470,7 +464,7 @@ void start_stepper(
 }
 
 /**
- * Acclerate a stepper.
+ * Accelerate a stepper.
  *
  * @param stepper_to_acc Stepper to accelerate.
  * @param curr_time_us Current time in us.
@@ -480,11 +474,9 @@ void accelerate_stepper(
   unsigned long curr_time_us
 ) {
 
-  // if the target is faster than the min-from-stopped rate, and the current rate is slower, then we can accelerate
-  // directly to the min-from-stopped rate.
-  if (stepper_to_acc->us_per_drive_target < MIN_US_PER_DRIVE_FROM_STOPPED && MIN_US_PER_DRIVE_FROM_STOPPED < stepper_to_acc->us_per_drive) {
-      stepper_to_acc->us_per_drive = MIN_US_PER_DRIVE_FROM_STOPPED;
-      stepper_to_acc->previous_acceleration_us = curr_time_us;
+  // if the current rate is slower than the min-from-stopped rate, then we can accelerate directly up to it.
+  if (stepper_to_acc->us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED) {
+      stepper_to_acc->us_per_drive = max(MIN_US_PER_DRIVE_FROM_STOPPED, stepper_to_acc->us_per_drive_target);
   }
 
   // reduce stepper delay to target delay limited by maximum acceleration
@@ -503,7 +495,6 @@ void accelerate_stepper(
     if (reduce_delay_us > 0) {
 
       stepper_to_acc->us_per_drive -= reduce_delay_us;
-      stepper_to_acc->previous_acceleration_us = curr_time_us;
 
       // if we've achieved the target delay, then recalculate the target delay to make up for time lost 
       // due to the acceleration interval, when the stepper was not operating at the target delay.
@@ -512,15 +503,12 @@ void accelerate_stepper(
       }
     }
   }
-  // if the stepper is at the target delay, mark the current time as the one from which to perform subsequent accelerations.
-  else if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
-    stepper_to_acc->previous_acceleration_us = curr_time_us;
-  }
   // allow instantaneous deceleration to the target
-  else {
-    stepper_to_acc->us_per_drive = stepper_to_acc->us_per_drive_target;
-    stepper_to_acc->previous_acceleration_us = curr_time_us;
+  else if (stepper_to_acc->us_per_drive < stepper_to_acc->us_per_drive_target) {
+    stepper_to_acc->us_per_drive = stepper_to_acc->us_per_drive_target;    
   }
+
+  stepper_to_acc->previous_acceleration_us = curr_time_us;
 }
 
 /**
@@ -561,10 +549,9 @@ void drive_stepper(
       stepper_to_drive->limit_skipped_drives += stepper_to_drive->drive_increment;
     }
 
-    // otherwise, drive and accelerate.
+    // otherwise, drive the stepper to the next index in the sequence
     else {
 
-      // drive the next index in the sequence
       byte drive_sequence_idx = mod(stepper_to_drive->drive_idx, DRIVE_SEQUENCE_LEN);
       for (byte pin_idx = 0; pin_idx < stepper_to_drive->driver_num_in_pins; ++pin_idx) {
         digitalWrite(stepper_to_drive->driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
@@ -576,15 +563,15 @@ void drive_stepper(
        * is very fast. this might not be true when serial read/write happens, which is slow.
        * it will also not be true if we hit a limit switch, stop, and then move away from it.
       */
-      stepper_to_drive->us_per_drive = us_elapsed_since_previous_drive;
-
-      accelerate_stepper(stepper_to_drive, curr_time_us);
-    }    
+      stepper_to_drive->us_per_drive = us_elapsed_since_previous_drive;      
+    }
 
     if (stepper_to_drive->drives_remaining == 0) {
       write_stepper_done(stepper_to_drive, curr_step_idx, curr_time_us);
     }
   }
+
+  accelerate_stepper(stepper_to_drive, curr_time_us);
 }
 
 /**
@@ -933,7 +920,6 @@ void loop() {
       disable_stepper(&right_stepper);
 
       curr_step_idx = 0;
-
     }
     // immediately configure the next step
     else {
