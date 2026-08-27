@@ -130,6 +130,7 @@ struct stepper {
 
 stepper left_stepper;
 stepper right_stepper;
+float left_right_us_per_drive_ratio = 0.0;
 
 /* linked list of steps to take, acting as a read buffer. each step determines
  * how the left and right steppers should move in tandem.
@@ -366,7 +367,7 @@ void init_stepper(stepper* stepper_to_init) {
  * Get the drive-delay target that achieves a number of drives in a given time interval.
  *
  * @param stepper_to_delay Stepper for which to get delay.
- * @return The drive-delay target (us).
+ * @return The drive-delay target (us/drive).
 */
 unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
 
@@ -374,23 +375,23 @@ unsigned long get_drive_delay_target(stepper* stepper_to_delay) {
       SerialUSB.println("Getting drive delay for stepper " + String(stepper_to_delay->identifier) + ":  " + String(stepper_to_delay->drives_remaining) + " drives in " + String(stepper_to_delay->us_remaining) + " us.");
     }
     
-    unsigned long delay_target_us = 0;
+    unsigned long us_per_drive_target = 0;
 
-    unsigned long num_delays = abs(stepper_to_delay->drives_remaining);
-    if (num_delays > 0) {
-      delay_target_us = (unsigned long)(stepper_to_delay->us_remaining / float(num_delays));
+    unsigned long num_drives = abs(stepper_to_delay->drives_remaining);
+    if (num_drives > 0) {
+      us_per_drive_target = (unsigned long)(stepper_to_delay->us_remaining / float(num_drives));
     }
     
     // impose maximum drive rate (minimum delay)
-    if (delay_target_us < MIN_US_PER_DRIVE) {
-      delay_target_us = MIN_US_PER_DRIVE;
+    if (us_per_drive_target < MIN_US_PER_DRIVE) {
+      us_per_drive_target = MIN_US_PER_DRIVE;
     }
 
     if (DEBUG) {
-      SerialUSB.println("Target drive delay:  " + String(delay_target_us) + " us.");
+      SerialUSB.println("Target drive delay:  " + String(us_per_drive_target) + " us.");
     }
 
-    return delay_target_us;
+    return us_per_drive_target;
 }
 
 /**
@@ -464,54 +465,6 @@ void start_stepper(
 }
 
 /**
- * Accelerate a stepper.
- *
- * @param stepper_to_acc Stepper to accelerate.
- * @param curr_time_us Current time in us.
-*/
-void accelerate_stepper(
-  stepper* stepper_to_acc,
-  unsigned long curr_time_us
-) {
-
-  // if the current rate is slower than the min-from-stopped rate, then we can accelerate directly up to it.
-  if (stepper_to_acc->us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED) {
-      stepper_to_acc->us_per_drive = max(MIN_US_PER_DRIVE_FROM_STOPPED, stepper_to_acc->us_per_drive_target);
-  }
-
-  // reduce stepper delay to target delay limited by maximum acceleration
-  if (stepper_to_acc->us_per_drive > stepper_to_acc->us_per_drive_target) {
-
-    unsigned long reduce_delay_us = stepper_to_acc->us_per_drive - stepper_to_acc->us_per_drive_target;
-
-    // limit reduction by passed time and max acceleration
-    unsigned long us_since_acceleration = curr_time_us - stepper_to_acc->previous_acceleration_us;
-    unsigned long max_reduction_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
-    if (reduce_delay_us > max_reduction_us) {
-      reduce_delay_us = max_reduction_us;
-    }
-
-    // insufficient time may have passed
-    if (reduce_delay_us > 0) {
-
-      stepper_to_acc->us_per_drive -= reduce_delay_us;
-
-      // if we've achieved the target delay, then recalculate the target delay to make up for time lost 
-      // due to the acceleration interval, when the stepper was not operating at the target delay.
-      if (stepper_to_acc->us_per_drive == stepper_to_acc->us_per_drive_target) {
-        stepper_to_acc->us_per_drive_target = get_drive_delay_target(stepper_to_acc);
-      }
-    }
-  }
-  // allow instantaneous deceleration to the target
-  else if (stepper_to_acc->us_per_drive < stepper_to_acc->us_per_drive_target) {
-    stepper_to_acc->us_per_drive = stepper_to_acc->us_per_drive_target;    
-  }
-
-  stepper_to_acc->previous_acceleration_us = curr_time_us;
-}
-
-/**
  * Drive a stepper to its target index.
  *
  * @param stepper_to_drive Stepper to drive.
@@ -570,8 +523,76 @@ void drive_stepper(
       write_stepper_done(stepper_to_drive, curr_step_idx, curr_time_us);
     }
   }
+}
 
-  accelerate_stepper(stepper_to_drive, curr_time_us);
+/**
+ * Accelerate a stepper.
+ *
+ * @param s Stepper.
+ * @param curr_time_us Current time in us.
+*/
+void accelerate_stepper(
+  stepper* s,
+  unsigned long curr_time_us
+) {
+
+  unsigned long new_us_per_drive = s->us_per_drive;
+
+  // if the current rate is slower than the min-from-stopped rate, then we can accelerate directly up to the min.
+  if (s->us_per_drive > MIN_US_PER_DRIVE_FROM_STOPPED) {
+      new_us_per_drive = max(MIN_US_PER_DRIVE_FROM_STOPPED, s->us_per_drive_target);
+  }
+  // reduce stepper delay to target delay limited by maximum acceleration
+  else if (s->us_per_drive > s->us_per_drive_target) {
+
+    unsigned long reduce_delay_us = s->us_per_drive - s->us_per_drive_target;
+
+    // limit reduction by passed time and max acceleration
+    unsigned long us_since_acceleration = curr_time_us - s->previous_acceleration_us;
+    unsigned long max_reduction_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
+    if (reduce_delay_us > max_reduction_us) {
+      reduce_delay_us = max_reduction_us;
+    }
+    if (reduce_delay_us > 0) {
+      new_us_per_drive = s->us_per_drive - reduce_delay_us;
+    }
+  }
+  // allow instantaneous deceleration to the target
+  else if (s->us_per_drive < s->us_per_drive_target) {
+    new_us_per_drive = s->us_per_drive_target;
+  }
+
+  // if we just obtained the target drive rate, then recalculate the target to make up for
+  // lost movement while not operating at the target delay.
+  if (new_us_per_drive != s->us_per_drive && new_us_per_drive == s->us_per_drive_target) {
+    s->us_per_drive_target = get_drive_delay_target(s);
+  }
+
+  s->us_per_drive = new_us_per_drive;
+  s->previous_acceleration_us = curr_time_us;
+}
+
+/**
+ * Coordinate steppers so that they always have the correct drive-delay ratio.
+ * 
+ * @param left Left stepper.
+ * @param right Right stepper.
+ * @param delay_ratio Drive-delay ratio (left delay / right delay).
+*/
+void coordinate_steppers(stepper* left, stepper* right, float delay_ratio) {
+
+  float curr_delay_ratio = float(left->us_per_drive) / float(right->us_per_drive);
+
+  // if the left is out driving the right, then reestablish the ratio by 
+  // adjusting the left delay, necessarily making the left delay larger
+  // and slowing the left stepper.
+  if (curr_delay_ratio < delay_ratio) {
+    left->us_per_drive = (unsigned long)(delay_ratio * right->us_per_drive);
+  }
+  // opposite if the right is out driving the left.
+  else if (curr_delay_ratio > delay_ratio) {
+    right->us_per_drive = (unsigned long)(left->us_per_drive / delay_ratio);
+  }
 }
 
 /**
@@ -805,6 +826,9 @@ void loop() {
 
     drive_stepper(&left_stepper, limited_travel, curr_time_us);
     drive_stepper(&right_stepper, limited_travel, curr_time_us);
+    accelerate_stepper(&left_stepper, curr_time_us);
+    accelerate_stepper(&right_stepper, curr_time_us);
+    coordinate_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
   }
 
   // process a commands sent over the serial connection
@@ -919,6 +943,8 @@ void loop() {
       right_stepper.drive_increment = 0;
       disable_stepper(&right_stepper);
 
+      left_right_us_per_drive_ratio = 0.0;
+
       curr_step_idx = 0;
     }
     // immediately configure the next step
@@ -932,6 +958,7 @@ void loop() {
 
       start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, curr_time_us);
       start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, curr_time_us);
+      left_right_us_per_drive_ratio = float(left_stepper.us_per_drive_target) / float(right_stepper.us_per_drive_target);
 
       delete next_step;
 
