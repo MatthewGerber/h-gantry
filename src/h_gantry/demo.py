@@ -85,7 +85,7 @@ def main():
 
     # investigating drift due to uncoordinated acceleration
     # gantry.move_to_point(0.0, gantry.y, 150.0, False, False)
-    # gantry.move_to_offset(0.0, 20.0, 150.0, False, False)
+    # gantry.move_to_offset(0.0, 100.0, 150.0, True)
     # gantry.move_to_point(gantry.left_right_mm, gantry.y, 150.0, False, False)
     # gantry.center(150.0, True, False)
     # gantry.move_to_offset(30.0, 0.0, 100.0,  True)
@@ -121,19 +121,19 @@ def main():
     # except KeyboardInterrupt:
     #     pass
 
-    # gantry.calibrate(100.0)
-    # gantry.center(100.0, True)
-    gantry.draw_spirograph_from_params(
-        350,
-        200,
-        100,
-        0.01,
-        0.5,
-        150.0,
-        True,
-        True,
-        10
-    )
+    # gantry.calibrate(200.0)
+    # gantry.center(200.0, True)
+    # gantry.draw_spirograph_from_params(
+    #     350,
+    #     200,
+    #     100,
+    #     0.01,
+    #     0.5,
+    #     200.0,
+    #     True,
+    #     True,
+    #     5
+    # )
 
     # gantry.draw_spiral(
     #     300.0,

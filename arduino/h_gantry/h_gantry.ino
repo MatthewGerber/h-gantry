@@ -22,12 +22,12 @@ const size_t STEPPER_DONE_RESPONSE_LEN = 11;
  * does not exhaust memory. larger values decrease chatter back to the caller but also make
  * the responses have higher latency.
 */
-const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 50;
+const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 100;
 
 /* minimum step buffer length before force-flushing the response buffer. ensures responsiveness to the 
  * caller, who might be waiting for responses before sending more steps.
 */ 
-const byte MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER = 10;
+const byte MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER = 20;
 
 const size_t STEPPER_DONE_RESPONSE_BUFFER_LEN = MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER * STEPPER_DONE_RESPONSE_LEN;
 byte STEPPER_DONE_RESPONSE_BUFFER[STEPPER_DONE_RESPONSE_BUFFER_LEN];
@@ -424,6 +424,7 @@ void start_stepper(
     s->drive_increment = 0;
     s->us_per_drive = 0;
     s->us_per_drive_target = 0;
+    s->ideal_us_per_drive = 0.0;
     write_stepper_done(s, curr_step_idx, curr_time_us);
   }
   // otherwise, configure the stepper to run.
@@ -574,25 +575,37 @@ void accelerate_stepper(
 }
 
 /**
- * Coordinate steppers so that they always have the correct drive-delay ratio.
+ * Synchronize steppers so that they always have the correct drive-delay ratio.
  * 
  * @param left Left stepper.
  * @param right Right stepper.
  * @param delay_ratio Drive-delay ratio (left delay / right delay).
 */
-void coordinate_steppers(stepper* left, stepper* right, float delay_ratio) {
+void synchronize_steppers(stepper* left, stepper* right, float delay_ratio) {
 
-  float curr_delay_ratio = float(left->us_per_drive) / float(right->us_per_drive);
-
-  // if the left is out driving the right, then reestablish the ratio by 
-  // adjusting the left delay, necessarily making the left delay larger
-  // and slowing the left stepper.
-  if (curr_delay_ratio < delay_ratio) {
-    left->us_per_drive = (unsigned long)(delay_ratio * right->us_per_drive);
+  if (delay_ratio <= 0.0) {
+    if (DEBUG) {
+      SerialUSB.println("Delay ratio is " + String(delay_ratio) + ", which is undefined, indicating that no synchronization is needed.");
+    }
   }
-  // opposite if the right is out driving the left.
-  else if (curr_delay_ratio > delay_ratio) {
-    right->us_per_drive = (unsigned long)(left->us_per_drive / delay_ratio);
+  else {
+
+    if (DEBUG) {
+      SerialUSB.println("Synchronizing steppers to ideal drive-delay ratio:  " + String(delay_ratio));
+    }
+
+    float curr_delay_ratio = float(left->us_per_drive) / float(right->us_per_drive);
+
+    // if the left is out driving the right, then reestablish the ratio by 
+    // adjusting the left delay, necessarily making the left delay larger
+    // and slowing the left stepper.
+    if (curr_delay_ratio < delay_ratio) {
+      left->us_per_drive = (unsigned long)(right->us_per_drive * delay_ratio);
+    }
+    // do the opposite if the right is out driving the left.
+    else if (curr_delay_ratio > delay_ratio) {
+      right->us_per_drive = (unsigned long)(left->us_per_drive / delay_ratio);
+    }
   }
 }
 
@@ -828,7 +841,7 @@ void loop() {
 
     accelerate_stepper(&left_stepper, curr_time_us);
     accelerate_stepper(&right_stepper, curr_time_us);
-    coordinate_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
+    synchronize_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
   }
 
   // process a commands sent over the serial connection
@@ -958,8 +971,15 @@ void loop() {
 
       start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, curr_time_us);
       start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, curr_time_us);
-      left_right_us_per_drive_ratio = left_stepper.ideal_us_per_drive / right_stepper.ideal_us_per_drive;
-      coordinate_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
+
+      if (right_stepper.ideal_us_per_drive > 0.0) {
+        left_right_us_per_drive_ratio = left_stepper.ideal_us_per_drive / right_stepper.ideal_us_per_drive;
+      }
+      else {
+        left_right_us_per_drive_ratio = 0.0;
+      }
+
+      synchronize_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
 
       delete next_step;
 

@@ -296,8 +296,8 @@ class HGantry(Component):
         # from multiple threads (e.g., async calls from rest api).
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
-        self.min_moves_pending_in_arduino = 10  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
-        self.max_moves_pending_in_arduino = 50  # arduino has limited memory for its move buffer
+        self.min_moves_pending_in_arduino = 20  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
+        self.max_moves_pending_in_arduino = 500  # arduino has limited memory for its move buffer
         self.completed_move_points: List[Tuple[float, float]] = []
         self.actual_x = self.x  # self.x reflects pending moves, whereas self.actual_x reflects completed moves.
         self.actual_y = self.y  # self.y reflects pending moves, whereas self.actual_y reflects completed moves.
