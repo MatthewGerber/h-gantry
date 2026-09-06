@@ -49,7 +49,7 @@ const byte DRIVE_SEQUENCE[DRIVE_SEQUENCE_LEN][STEPPER_DRIVER_NUM_IN_PINS] = {
 };
 const unsigned long MIN_US_PER_DRIVE = 100;  // fastest driving with acceleration from a slower speed
 const unsigned long MIN_US_PER_DRIVE_FROM_STOPPED = 500;  // fastest driving directly from a dead stop
-const float FULL_ACCEL_INTERVAL_SEC = 0.25;  // fastest acceleration from dead stop to fastest
+const float FULL_ACCEL_INTERVAL_SEC = 0.1;  // fastest acceleration from dead stop to fastest
 const byte A4988_MS1_OUTPUT_PIN = 9;  // sets half-step output in the A4988 driver
 
 // Microstep configuration for the A4988
@@ -401,14 +401,8 @@ unsigned long get_drive_delay_target(stepper* s) {
  * @param s Stepper to start.
  * @param num_drives Number of drives (signed per direction).
  * @param us_to_drive Total us to drive.
- * @param curr_time_us Current time in us.
 */
-void start_stepper(
-  stepper* s,
-  long num_drives,
-  unsigned long us_to_drive,
-  unsigned long curr_time_us
-) {
+void start_stepper(stepper* s, long num_drives, unsigned long us_to_drive) {
 
   if (DEBUG) {
     SerialUSB.println("Starting stepper " + String(s->identifier) + " with " + String(num_drives) + " drives.");
@@ -425,7 +419,7 @@ void start_stepper(
     s->us_per_drive = 0;
     s->us_per_drive_target = 0;
     s->ideal_us_per_drive = 0.0;
-    write_stepper_done(s, curr_step_idx, curr_time_us);
+    write_stepper_done(s, curr_step_idx);
   }
   // otherwise, configure the stepper to run.
   else {
@@ -457,8 +451,7 @@ void start_stepper(
       digitalWrite(s->driver_dir_pin, s->drive_increment < 0 ? LOW : HIGH);
     }    
 
-    s->previous_drive_us = curr_time_us;
-    s->previous_acceleration_us = curr_time_us;
+    s->previous_drive_us = s->previous_acceleration_us = micros();
 
     if (DEBUG) {
       SerialUSB.println("Done starting stepper " + String(s->identifier) + " at " + String(s->us_per_drive) + " us/drive.");
@@ -471,20 +464,15 @@ void start_stepper(
  *
  * @param s Stepper to drive.
  * @param limited_travel Whether travel is limited.
- * @param curr_time_us Current time in microseconds.
  * @return Whether stepper has completed.
  */
-void drive_stepper(
-  stepper* s,
-  bool limited_travel,
-  unsigned long curr_time_us
-) {
+void drive_stepper(stepper* s, bool limited_travel) {
 
   /* drive the stepper if needed to reach target and enough time has elapsed. modular arithmetic handles micros() overflow 
-   * naturally, when curr_time_us wraps back around to zero creating a negative elapsed time. if travel is being limited 
+   * naturally, when micros() wraps back around to zero creating a negative elapsed time. if travel is being limited 
    * by a limit switch, then drive immediately without waiting for elapsed time, to skip the rest of the move.
   */
-  unsigned long us_elapsed_since_previous_drive = curr_time_us - s->previous_drive_us;
+  unsigned long us_elapsed_since_previous_drive = micros() - s->previous_drive_us;
   if (limited_travel || (s->drives_remaining != 0 && us_elapsed_since_previous_drive >= s->us_per_drive)) {
 
     s->drive_idx += s->drive_increment;
@@ -511,18 +499,18 @@ void drive_stepper(
       for (byte pin_idx = 0; pin_idx < s->driver_num_in_pins; ++pin_idx) {
         digitalWrite(s->driver_pins[pin_idx], DRIVE_SEQUENCE[drive_sequence_idx][pin_idx]);
       }
-      s->previous_drive_us = curr_time_us;
+      s->previous_drive_us = micros();
 
       /* set the current drive rate to the empirical rate. ideally, the empirical elapsed time 
        * will equal the drive delay. this will usually be quite close, since the arduino loop
        * is very fast. this might not be true when serial read/write happens, which is slow.
        * it will also not be true if we hit a limit switch, stop, and then move away from it.
       */
-      s->us_per_drive = us_elapsed_since_previous_drive;      
+      s->us_per_drive = us_elapsed_since_previous_drive;
     }
 
     if (s->drives_remaining == 0) {
-      write_stepper_done(s, curr_step_idx, curr_time_us);
+      write_stepper_done(s, curr_step_idx);
     }
   }
 }
@@ -531,12 +519,8 @@ void drive_stepper(
  * Accelerate a stepper.
  *
  * @param s Stepper.
- * @param curr_time_us Current time in us.
 */
-void accelerate_stepper(
-  stepper* s,
-  unsigned long curr_time_us
-) {
+void accelerate_stepper(stepper* s) {
 
   unsigned long new_us_per_drive = s->us_per_drive;
 
@@ -550,7 +534,7 @@ void accelerate_stepper(
     unsigned long reduce_delay_us = s->us_per_drive - s->us_per_drive_target;
 
     // limit reduction by passed time and max acceleration
-    unsigned long us_since_acceleration = curr_time_us - s->previous_acceleration_us;
+    unsigned long us_since_acceleration = micros() - s->previous_acceleration_us;
     unsigned long max_reduction_us = (unsigned long)(us_since_acceleration * MAX_DRIVE_ACC_US_PER_DRIVE_PER_US);
     if (reduce_delay_us > max_reduction_us) {
       reduce_delay_us = max_reduction_us;
@@ -571,7 +555,7 @@ void accelerate_stepper(
   }
 
   s->us_per_drive = new_us_per_drive;
-  s->previous_acceleration_us = curr_time_us;
+  s->previous_acceleration_us = micros();
 }
 
 /**
@@ -639,7 +623,14 @@ void resume_stepper(stepper* s) {
  * @param s Stepper to disable.
 */
 void disable_stepper(stepper* s) {
+
+  /* we're going to lose any momentum that we have. set us/drive to zero, which will require 
+   * the steppers to accelerate from their slowest speed when they resume stepping.
+  */
   if (s->driver_disable_pin >= 0 && !s->driver_is_disabled) {
+    s->us_per_drive = 0;
+    s->us_per_drive_target = 0;
+    s->drive_increment = 0;
     digitalWrite(s->driver_disable_pin, HIGH);
     s->driver_is_disabled = true;
   }
@@ -650,9 +641,10 @@ void disable_stepper(stepper* s) {
  *
  * @param s Stepper that is done.
  * @param idx Move sequence index that is done.
- * @param done_time_us Timestamp (us) when the stepper/move completed.
 */
-void write_stepper_done(stepper* s, unsigned int idx, unsigned long done_time_us) {
+void write_stepper_done(stepper* s, unsigned int idx) {
+
+    unsigned long done_time_us = micros();
 
     if (DEBUG) {
       SerialUSB.println("Stepper " + String(s->identifier) + " done with move " + String(idx) + " at time " + String(done_time_us));
@@ -700,10 +692,10 @@ void check_stepper_done_buffer(bool force_flush) {
   }
 
   if (force_flush || NUM_STEPPER_DONE_RESPONSES_BUFFERED >= MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER) {
-      SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
-      SerialUART.flush();
-      NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
-    }
+    SerialUART.write(STEPPER_DONE_RESPONSE_BUFFER, NUM_STEPPER_DONE_RESPONSES_BUFFERED * STEPPER_DONE_RESPONSE_LEN);
+    SerialUART.flush();
+    NUM_STEPPER_DONE_RESPONSES_BUFFERED = 0;
+  }
 }
 
 /**
@@ -746,8 +738,6 @@ void setup() {
 }
 
 void loop() {
-
-  unsigned long curr_time_us = micros();
 
   // process the current step command if everything is initialized
   if (left_stepper.is_inited && !left_stepper.is_paused && right_stepper.is_inited && !right_stepper.is_paused && limit_switches_inited) {
@@ -836,11 +826,11 @@ void loop() {
       (moving_up && !digitalRead(top_limit_switch_pin))
     );
 
-    drive_stepper(&left_stepper, limited_travel, curr_time_us);
-    drive_stepper(&right_stepper, limited_travel, curr_time_us);
+    drive_stepper(&left_stepper, limited_travel);
+    drive_stepper(&right_stepper, limited_travel);
 
-    accelerate_stepper(&left_stepper, curr_time_us);
-    accelerate_stepper(&right_stepper, curr_time_us);
+    accelerate_stepper(&left_stepper);
+    accelerate_stepper(&right_stepper);
     synchronize_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
   }
 
@@ -924,7 +914,7 @@ void loop() {
       }
     }
     else if (command == CMD_GET_CURRENT_TIME_US) {
-      write_unsigned_long(curr_time_us);
+      write_unsigned_long(micros());
     }
   }
 
@@ -936,31 +926,19 @@ void loop() {
     // if the buffer is low/empty, then force-flush the stepper done buffer. the caller might 
     // be waiting on this signal that the buffer is low before sending more moves.
     if (steps_len < MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER) {
-      check_stepper_done_buffer(true);
+        check_stepper_done_buffer(true);
     }
 
     // if the buffer is empty, then we have nothing further to do at this time.
-    if (next_step == nullptr) {
-
-      /* if the buffer has run out of steps, then the steppers won't drive further. we're going to lose any momentum 
-       * that we have. set us/drive to zero, which will require the steppers to accelerate from their slowest speed
-       * when they resume stepping.
-      */
-      left_stepper.us_per_drive = 0;
-      left_stepper.us_per_drive_target = 0;
-      left_stepper.drive_increment = 0;
+    // disable the steppers and flush the serial buffer to ensure the bytes are
+    // written.
+    if (next_step == nullptr) {      
       disable_stepper(&left_stepper);
-
-      right_stepper.us_per_drive = 0;
-      right_stepper.us_per_drive_target = 0;
-      right_stepper.drive_increment = 0;
       disable_stepper(&right_stepper);
-
       left_right_us_per_drive_ratio = 0.0;
-
       curr_step_idx = 0;
     }
-    // immediately configure the next step
+    // configure the next step
     else {
 
       curr_step_idx = next_step->idx;
@@ -969,16 +947,16 @@ void loop() {
         SerialUSB.println("Starting next step:  " + String(curr_step_idx));
       }
 
-      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive, curr_time_us);
-      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive, curr_time_us);
+      start_stepper(&left_stepper, next_step->left_stepper_num_drives, next_step->us_to_drive);
+      start_stepper(&right_stepper, next_step->right_stepper_num_drives, next_step->us_to_drive);
 
+      // calculate ideal drive rate ratio and synchronize steppers to it
       if (right_stepper.ideal_us_per_drive > 0.0) {
         left_right_us_per_drive_ratio = left_stepper.ideal_us_per_drive / right_stepper.ideal_us_per_drive;
       }
       else {
         left_right_us_per_drive_ratio = 0.0;
       }
-
       synchronize_steppers(&left_stepper, &right_stepper, left_right_us_per_drive_ratio);
 
       delete next_step;

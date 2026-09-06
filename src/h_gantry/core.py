@@ -949,12 +949,13 @@ class HGantry(Component):
 
             if python_has_moves and max_num_moves_to_send > 0:
 
-                # write all command bytes
-                self.pause_steppers()
+                # write all command bytes before manually flushing. pause the steppers while we do this, so that the
+                # serial read chatter on the arduino side does not slow down stepper movements.
+                self.pause_steppers(False)
                 moves_to_send = self.moves_pending_in_python[:max_num_moves_to_send]
                 for move_to_send in moves_to_send:
                     self.send_move_to_arduino(move_to_send)
-                self.resume_steppers()
+                self.resume_steppers(False)
 
                 # push all bytes to arduino at once, in a single lump. this minimizes the number of serial read/writes.
                 self.arduino_serial.flush_manually()
@@ -967,31 +968,37 @@ class HGantry(Component):
                 )
 
     def pause_steppers(
-            self
+            self,
+            flush: bool
     ):
         """
         Pause the steppers.
+
+        :param flush: Whether to flush after writing bytes.
         """
 
         self.arduino_serial.write_then_read(
             HGantry.Command.PAUSE.to_bytes(1, signed=False) +
             (0).to_bytes(1, signed=False),  # ignored component id
-            False,
+            flush,
             0,
             False
         )
 
     def resume_steppers(
-            self
+            self,
+            flush: bool
     ):
         """
         Resume the steppers.
+
+        :param flush: Whether to flush after writing bytes.
         """
 
         self.arduino_serial.write_then_read(
             HGantry.Command.RESUME.to_bytes(1, signed=False) +
             (0).to_bytes(1, signed=False),  # ignored component id
-            False,
+            flush,
             0,
             False
         )
