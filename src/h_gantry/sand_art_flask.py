@@ -1,6 +1,8 @@
 import logging
 import os
+from datetime import timedelta
 from threading import Lock
+from typing import cast
 
 import RPi.GPIO as gpio
 import microcontroller
@@ -109,7 +111,9 @@ def update_led_strip_on_gantry_update(
 
     if led_lock.acquire(blocking=False):
         try:
-            if (
+            if gantry_state.calibration_status == HGantry.CalibrationStatus.CALIBRATING:
+                led_strip.theater_chase_rainbow(timedelta(milliseconds=20), lambda _: cast(HGantry.State, gantry.state).calibration_status != HGantry.CalibrationStatus.CALIBRATING)
+            elif (
                 gantry_state.started and
                 gantry_state.enabled and
                 gantry_state.calibration_status == HGantry.CalibrationStatus.CALIBRATED

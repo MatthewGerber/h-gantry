@@ -22,7 +22,7 @@ const size_t STEPPER_DONE_RESPONSE_LEN = 11;
  * does not exhaust memory. larger values decrease chatter back to the caller but also make
  * the responses have higher latency.
 */
-const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 100;
+const byte MAX_NUM_STEPPER_DONE_RESPONSES_TO_BUFFER = 20;
 
 /* minimum step buffer length before force-flushing the response buffer. ensures responsiveness to the 
  * caller, who might be waiting for responses before sending more steps.

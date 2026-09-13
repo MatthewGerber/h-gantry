@@ -82,6 +82,79 @@ class Move:
         self.get_left_driver_return_value: Optional[StepperMotorDriverAsynchronousReturn] = None
         self.get_right_driver_return_value: Optional[StepperMotorDriverAsynchronousReturn] = None
 
+    def starts_after(
+            self,
+            time_epoch: float,
+            latency: float
+    ) -> bool:
+        """
+        Get whether the move starts after a time.
+
+        :param time_epoch: Time (epoch seconds).
+        :param latency: Latency of move.
+        :return: True if move starts after the time, given the latency.
+        """
+
+        return time_epoch < self.start_time_epoch + latency
+
+    def ends_by(
+            self,
+            time_epoch: float,
+            latency: float
+    ) -> bool:
+        """
+        Get whether the move ends by a time.
+
+        :param time_epoch: Time (epoch seconds).
+        :param latency: Latency of move.
+        :return: True if move ends by the time, given the latency.
+        """
+
+        return self.end_time_epoch + latency <= time_epoch
+
+    def spans(
+            self,
+            time_epoch: float,
+            latency: float
+    ) -> bool:
+        """
+        Get whether the move spans a time.
+
+        :param time_epoch: Time (epoch seconds).
+        :param latency: Latency of move.
+        :return: True if move spans the time, given the latency.
+        """
+
+        return self.start_time_epoch + latency <= time_epoch < self.end_time_epoch + latency
+
+    def intermediate_location_at(
+            self,
+            time_epoch: float,
+            latency: float
+    ) -> Tuple[float, float]:
+        """
+        Get intermediate location within the move at a time.
+
+        :param time_epoch: Time (epoch seconds).
+        :param latency: Latency of move.
+        :return: Intermediate location (x, y) within the move at the given time and latency.
+        """
+
+        if not self.spans(time_epoch, latency):
+            raise ValueError('Move does not span time. Cannot calculate fraction complete at time.')
+
+        fraction_complete = (
+            (time_epoch - (self.start_time_epoch + latency)) /
+            (self.end_time_epoch - self.start_time_epoch)
+        )
+
+        start_x = self.to_x_mm - self.move_x_mm
+        intermediate_x = start_x + fraction_complete * self.move_x_mm
+        start_y = self.to_y_mm - self.move_y_mm
+        intermediate_y = start_y + fraction_complete * self.move_y_mm
+
+        return intermediate_x, intermediate_y
+
 
 class HGantry(Component):
     """
@@ -296,6 +369,7 @@ class HGantry(Component):
         # from multiple threads (e.g., async calls from rest api).
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
+        self.move_pipeline_latency_sec = 0.0
         self.min_moves_pending_in_arduino = 20  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
         self.max_moves_pending_in_arduino = 500  # arduino has limited memory for its move buffer
         self.completed_move_points: List[Tuple[float, float]] = []
@@ -845,36 +919,29 @@ class HGantry(Component):
         # if all moves are in the future, then the actual x/y positions that we track are the most accurate estimate of
         # the current location. this should not be generally possible, as time only moves forward from the creation of
         # each move.
-        elif current_time_epoch < next_move_to_finish.start_time_epoch:
+        elif next_move_to_finish.starts_after(current_time_epoch, self.move_pipeline_latency_sec):
             with self.move_lock:
                 curr_x, curr_y = self.actual_x, self.actual_y
 
-        # if all moves are in the past, then they should all be complete, and the best estimate is the final move
-        # position.
-        elif current_time_epoch >= last_move_to_finish.end_time_epoch:
+        # if all moves end by the current time, then they should all be complete, and the best estimate is the final
+        # move position.
+        elif last_move_to_finish.ends_by(current_time_epoch, self.move_pipeline_latency_sec):
             curr_x, curr_y = last_move_to_finish.to_x_mm, last_move_to_finish.to_y_mm
 
         # otherwise, we're in the middle of a move. find it and estimate our progress through it.
         else:
             with self.move_lock:
-                curr_move = next(
-                    (
-                        move
-                        for move in itertools.chain(
-                            iter(self.moves_pending_in_arduino),
-                            iter(self.moves_pending_in_python)
-                        )
-                        if move.start_time_epoch <= current_time_epoch < move.end_time_epoch
+                curr_x, curr_y = next(
+                    move.intermediate_location_at(
+                        current_time_epoch,
+                        self.move_pipeline_latency_sec
                     )
+                    for move in itertools.chain(
+                        iter(self.moves_pending_in_arduino),
+                        iter(self.moves_pending_in_python)
+                    )
+                    if move.spans(current_time_epoch, self.move_pipeline_latency_sec)
                 )
-            fraction_through_curr_move = (
-                (current_time_epoch - curr_move.start_time_epoch) /
-                (curr_move.end_time_epoch - curr_move.start_time_epoch)
-            )
-            curr_move_start_x = curr_move.to_x_mm - curr_move.move_x_mm
-            curr_x = curr_move_start_x + fraction_through_curr_move * curr_move.move_x_mm
-            curr_move_start_y = curr_move.to_y_mm - curr_move.move_y_mm
-            curr_y = curr_move_start_y + fraction_through_curr_move * curr_move.move_y_mm
 
         return curr_x, curr_y
 
@@ -1045,13 +1112,14 @@ class HGantry(Component):
     def read_move_from_arduino(
             self,
             move: Move
-    ) -> Tuple[float, float, float, float]:
+    ) -> Tuple[float, float, float, float, float]:
         """
         Read a move from Arduino, which will block until the Arduino sends the read-completed message back.
 
         :param move: Move to read.
-        :return: 4-tuple of elapsed seconds for the left stepper, left stepper skipped steps, elapsed seconds for the
-        right stepper, and right stepper skipped steps.
+        :return: 5-tuple of elapsed seconds for the left stepper, left stepper skipped steps, elapsed seconds for the
+        right stepper, right stepper skipped steps, and move done time latency (seconds; positive if move completed
+        later than expected).
         """
 
         assert move.get_left_driver_return_value is not None
@@ -1090,6 +1158,9 @@ class HGantry(Component):
         ) = stepper_id_return_tuple[self.right_driver.identifier]
         right_stepper_elapsed_seconds = right_stepper_done_time_epoch - move.start_time_epoch
 
+        move_done_time_epoch = max(left_stepper_done_time_epoch, right_stepper_done_time_epoch)
+        move_done_time_latency = move_done_time_epoch - move.end_time_epoch
+
         # ensure that the completed steps were for the same move as passed in
         assert left_stepper_idx == right_stepper_idx == move.idx
 
@@ -1097,7 +1168,8 @@ class HGantry(Component):
             left_stepper_elapsed_seconds,
             left_stepper_skipped_steps,
             right_stepper_elapsed_seconds,
-            right_stepper_skipped_steps
+            right_stepper_skipped_steps,
+            move_done_time_latency
         )
 
     def update_stepper_state(
@@ -1152,7 +1224,8 @@ class HGantry(Component):
                         left_stepper_elapsed_seconds,
                         left_stepper_skipped_steps,
                         right_stepper_elapsed_seconds,
-                        right_stepper_skipped_steps
+                        right_stepper_skipped_steps,
+                        self.move_pipeline_latency_sec
                     ) = self.read_move_from_arduino(move)
 
                     self.update_stepper_state(
@@ -1197,10 +1270,10 @@ class HGantry(Component):
                         # set the state with the actual values
                         self.set_state(cast(HGantry.State, self.state).set(x=self.actual_x, y=self.actual_y))
 
-                        # adjust the estimated completion time of each move in the pipeline
-
-
                         self.completed_move_points.append((self.actual_x, self.actual_y))
+
+                        if not self.has_moves_in_pipeline():
+                            self.move_pipeline_latency_sec = 0.0
 
             finally:
                 self.driver_read_lock.release()
@@ -1657,7 +1730,7 @@ class HGantry(Component):
 
     def has_moves_in_pipeline(
             self
-    ) -> int:
+    ) -> bool:
         """
         Get whether there are any moves in the pipeline (in Python or Arduino).
 
