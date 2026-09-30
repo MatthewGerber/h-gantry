@@ -369,6 +369,7 @@ class HGantry(Component):
         # from multiple threads (e.g., async calls from rest api).
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
+        self.withhold_moves_from_arduino = False
         self.move_pipeline_latency_sec = 0.0
         self.min_moves_pending_in_arduino = 20  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
         self.max_moves_pending_in_arduino = 500  # arduino has limited memory for its move buffer
@@ -487,6 +488,10 @@ class HGantry(Component):
         Start the gantry.
         """
 
+        if self.started():
+            logger.warning('Attempted to start when already started.')
+            return
+
         # switch to automatic buffering for initialization
         self.arduino_serial.manual_buffer = False
         self.left_stepper.start()
@@ -522,7 +527,7 @@ class HGantry(Component):
         """
 
         if not cast(HGantry.State, self.state).started:
-            logger.info('Gantry already stopped.')
+            logger.info('Attempted to stop when already stopped.')
             return
 
         # process the buffer to obtain current x/y position
@@ -801,7 +806,8 @@ class HGantry(Component):
             raise ValueError('Gantry has not been started. Cannot move.')
 
         if self.get_calibration_status() not in [
-            HGantry.CalibrationStatus.CALIBRATING, HGantry.CalibrationStatus.CALIBRATED
+            HGantry.CalibrationStatus.CALIBRATING,
+            HGantry.CalibrationStatus.CALIBRATED
         ]:
             raise UncalibratedError('Cannot move unless calibrating or calibrated.')
 
@@ -1003,7 +1009,9 @@ class HGantry(Component):
             num_python_moves_available = len(self.moves_pending_in_python)
             num_moves_pending_in_arduino = len(self.moves_pending_in_arduino)
 
-            if only_send_if_needed:
+            if self.withhold_moves_from_arduino:
+                max_num_moves_to_send = 0
+            elif only_send_if_needed:
                 arduino_needs_moves = num_moves_pending_in_arduino < self.min_moves_pending_in_arduino
                 if arduino_needs_moves:
                     max_num_moves_to_send = self.max_moves_pending_in_arduino - num_moves_pending_in_arduino
@@ -1282,13 +1290,13 @@ class HGantry(Component):
 
     def clear_move_buffer(
             self
-    ) -> bool:
+    ) -> Optional[bool]:
         """
         Clear the move buffer. Does not move the gantry beyond the moves currently in the buffer. Blocks until all
         moves are complete.
 
-        :return: True if the buffer was cleared without hitting a limit switch; False if limit switch was hit by the
-        final move.
+        :return: True if move was achieved without hitting a limit switch; False if limit switch was hit before move was
+        achieved. Will be None if the move was buffered and not completed.
         """
 
         return self.move_to_offset(0.0, 0.0, 1.0, True)
@@ -1355,6 +1363,9 @@ class HGantry(Component):
         with self.move_lock:
             original_x, original_y = self.x, self.y
 
+        # withhold moves since we're about to send potentially many points. we don't want the initial points to cause a
+        # lot of chatter with arduino. the pump will send any moves after we stop withholding below.
+        self.withhold_moves_from_arduino = True
         num_points = len(points)
         for i, (x, y) in enumerate(points):
             distance_mm = self.get_distance_to_point((x, y))
@@ -1364,6 +1375,7 @@ class HGantry(Component):
             else:
                 logger.debug(f'Moving to point {i + 1} of {num_points}:  {x:.3f},{y:.3f}')
                 self.move_to_point(x, y, mm_per_sec, False)
+        self.withhold_moves_from_arduino = False
 
         if return_to_current_position:
             self.move_to_point(original_x, original_y, mm_per_sec, False)

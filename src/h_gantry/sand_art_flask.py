@@ -141,3 +141,5 @@ def on_exit():
 
 app.register_on_exit_callback(on_exit)
 app.start(__name__)
+
+gantry.start()
