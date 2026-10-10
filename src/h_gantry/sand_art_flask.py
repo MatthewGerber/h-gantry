@@ -1,7 +1,8 @@
 import logging
 import os
 from datetime import timedelta
-from threading import Lock
+from threading import Lock, Thread
+from time import sleep
 from typing import cast
 
 import RPi.GPIO as gpio
@@ -13,9 +14,11 @@ from serial import Serial
 from h_gantry.core import HGantry
 from raspberry_py.gpio import CkPin, setup
 from raspberry_py.gpio.communication import LockingSerial
+from raspberry_py.gpio.displays import Lcd1602
 from raspberry_py.gpio.lights import FrameLedStrip, LedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
+from raspberry_py.utils import get_local_ip_address
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +135,38 @@ def update_led_strip_on_gantry_update(
 
 gantry.event(update_led_strip_on_gantry_update, synchronous=False)
 
+lcd = Lcd1602.init_lcd(2, None)
+running = False
+
+def display_lcd_info():
+    """
+    Display the current local IP address.
+    """
+
+    while running:
+        try:
+            sleep(5)
+            lcd.clear()
+            lcd.message(f'IP address:\n{get_local_ip_address()}')
+        except:
+            pass
+    else:
+        logger.info('LCD loop is exiting.')
+
+    lcd.clear()
+    lcd.pcf8574.destroy()
+
+lcd_thread = Thread(target=display_lcd_info)
+lcd_thread.start()
+
 def on_exit():
     """
     Clean up, save state, etc.
     """
+
+    global running
+    running = False
+    lcd_thread.join()
 
     gantry.stop()
 

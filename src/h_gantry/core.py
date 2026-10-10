@@ -981,8 +981,14 @@ class HGantry(Component):
                 move.get_left_driver_return_value,
                 move.get_right_driver_return_value
             ) = (
-                self.left_stepper.step(move.left_stepper_steps, move.time_to_step),
-                self.right_stepper.step(move.right_stepper_steps, move.time_to_step)
+                cast(
+                    StepperMotorDriverAsynchronousReturn,
+                    self.left_stepper.step(move.left_stepper_steps, move.time_to_step)
+                ),
+                cast(
+                    StepperMotorDriverAsynchronousReturn,
+                    self.right_stepper.step(move.right_stepper_steps, move.time_to_step)
+                )
             )
 
             self.moves_pending_in_arduino.append(move)
