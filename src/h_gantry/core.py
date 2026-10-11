@@ -1205,7 +1205,7 @@ class HGantry(Component):
         stepper_state: Stepper.State = stepper.state
         super(Stepper, stepper).set_state(
             Stepper.State(
-                round(stepper_state.step + steps - skipped),
+                round(stepper_state.step + steps - skipped),  # type: ignore -- false positive
                 timedelta(seconds=elapsed_seconds)
             )
         )
