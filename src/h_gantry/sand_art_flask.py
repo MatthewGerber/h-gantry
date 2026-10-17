@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import timedelta
+from os.path import dirname, join
 from threading import Lock, Thread
 from time import sleep
 from typing import cast
@@ -81,7 +82,8 @@ gantry = HGantry(
     top_limit_switch_arduino_pin=12,
     arduino_serial=locking_serial,
     timing_pulley_dia_mm=12.97,
-    state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle')
+    state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle'),
+    cursive_alphabet_data_path=join(dirname(str(__file__)), 'cursive_alphabet_data.json')
 )
 gantry.id = 'gantry-1'
 app.add_component(gantry)

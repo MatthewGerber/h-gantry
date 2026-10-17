@@ -1,9 +1,11 @@
 import logging
 import os.path
 import time
+from os.path import dirname, join
 from typing import cast
 
 import serial
+from matplotlib import pyplot as plt
 from serial import Serial
 
 from h_gantry.core import HGantry
@@ -77,9 +79,18 @@ def main():
         top_limit_switch_arduino_pin=12,
         arduino_serial=locking_serial,
         timing_pulley_dia_mm=12.97,
-        state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle')
+        state_path=os.path.expanduser('~/Desktop/h-gantry-state.pickle'),
+        cursive_alphabet_data_path=join(dirname(str(__file__)), 'cursive_alphabet_data.json')
     )
     gantry.event(lambda s: logger.debug(f'Gantry position:  {s}'))
+
+    points = gantry.get_cursive_points('H')
+    plt.plot(
+        [x for x, _ in points],
+        [y for _, y in points]
+    )
+    plt.show()
+    return
 
     gantry.start()
 

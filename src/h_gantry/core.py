@@ -1,5 +1,6 @@
 import io
 import itertools
+import json
 import logging
 import math
 import os.path
@@ -293,7 +294,8 @@ class HGantry(Component):
             top_limit_switch_arduino_pin: int,
             arduino_serial: LockingSerial,
             timing_pulley_dia_mm: float,
-            state_path: str
+            state_path: str,
+            cursive_alphabet_data_path: str
     ):
         """
         Initialize the gantry.
@@ -308,6 +310,7 @@ class HGantry(Component):
         :param arduino_serial: Arduino serial connection.
         :param timing_pulley_dia_mm: Diameter of the timing pulley.
         :param state_path: Path to file to read/write state information.
+        :param cursive_alphabet_data_path: Path to cursive alphabet data.
         """
 
         self.joystick_z_pin = joystick_z_pin
@@ -320,6 +323,7 @@ class HGantry(Component):
         self.arduino_serial = arduino_serial
         self.timing_pulley_dia_mm = timing_pulley_dia_mm
         self.state_path = state_path
+        self.cursive_alphabet_data_path = cursive_alphabet_data_path
 
         left_driver = self.left_stepper.driver
         assert isinstance(left_driver, StepperMotorDriverArduinoA4988)
@@ -425,6 +429,9 @@ class HGantry(Component):
         # this on a clock.
         self.pump_clock = Clock(0.1)
         self.pump_clock.event(self.pump)
+
+        with open(self.cursive_alphabet_data_path, 'r') as f:
+            self.cursive_alphabet_data = json.load(f)
 
     def pump(
             self,
@@ -1676,6 +1683,42 @@ class HGantry(Component):
             wipe_left_to_right = not wipe_left_to_right
 
         return self.center(mm_per_sec, block)
+
+    def get_cursive_points(
+            self,
+            s: str
+    ) -> List[Tuple[float, float]]:
+        """
+        Get cursive points for text.
+
+        :param s: Text.
+        :return: Cursive points.
+        """
+
+        points = []
+
+        for letter in s:
+            letter_points = self.cursive_alphabet_data[letter]
+            x = [x for x, _, _ in letter_points]
+            y = [y for _, y, _ in letter_points]
+            pen_up = [pen_up for _, _, pen_up in letter_points]
+
+
+        return points
+
+    @staticmethod
+    def interp(
+            values: List[float],
+            resolution: float
+    ) -> List[float]:
+
+        num_values = len(values)
+        if num_values > 3:
+            t = np.linspace(0, 1, num_values)
+            t_interp = np.linspace(0, 1, int(num_values * resolution))
+            values_interp = make_interp_spline(t, x_arr, k=3)(t_interp)
+
+
 
     def enable(
             self
