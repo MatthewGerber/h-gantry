@@ -10,6 +10,7 @@ python = "^3.11"
 raspberry-py = {path = "submodules/raspberry-py", develop = true}
 spyrograph = "^0.29.0"
 matplotlib = "^3.10.6"
+scipy = "1.15"
 
 [build-system]
 requires = ["poetry-core"]
