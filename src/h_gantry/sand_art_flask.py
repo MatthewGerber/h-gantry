@@ -18,7 +18,7 @@ from raspberry_py.gpio.displays import Lcd1602
 from raspberry_py.gpio.lights import FrameLedStrip, LedStrip
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988
 from raspberry_py.rest.application import app
-from raspberry_py.utils import get_local_ip_address
+from raspberry_py.utils import get_local_ip_address, get_cpu_temp
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ led_strip = FrameLedStrip(
     )
 )
 led_lock = Lock()
+lcd_state = None
 def update_led_strip_on_gantry_update(
         gantry_state: HGantry.State
 ):
@@ -112,21 +113,34 @@ def update_led_strip_on_gantry_update(
     :param gantry_state: Gantry state.
     """
 
+    global lcd_state
+
     if led_lock.acquire(blocking=False):
         try:
             if gantry_state.calibration_status == HGantry.CalibrationStatus.CALIBRATING:
-                led_strip.theater_chase_rainbow(timedelta(milliseconds=20), lambda _: cast(HGantry.State, gantry.state).calibration_status != HGantry.CalibrationStatus.CALIBRATING)
+                lcd_state = 'Calibrating'
+                led_strip.theater_chase_rainbow(
+                    timedelta(milliseconds=20),
+                    lambda _: (
+                        cast(HGantry.State, gantry.state).calibration_status !=
+                        HGantry.CalibrationStatus.CALIBRATING
+                    )
+                )
             elif (
                 gantry_state.started and
                 gantry_state.enabled and
                 gantry_state.calibration_status == HGantry.CalibrationStatus.CALIBRATED
             ):
                 led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.GREEN)
+                lcd_state = 'Ready'
             elif not gantry_state.started:
                 led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.RED)
+                lcd_state = 'Unstarted'
             elif not gantry_state.enabled:
                 led_strip.cross_point(gantry_state.x_est, gantry_state.y_est, FrameLedStrip.YELLOW)
+                lcd_state = 'Disabled'
             else:
+                lcd_state = 'Uncalibrated'
                 led_strip.turn_off()
         except LedStrip.InvalidPixelError as e:
             logger.error(f'Error while setting LED strip:  {e}')
@@ -136,22 +150,33 @@ def update_led_strip_on_gantry_update(
 gantry.event(update_led_strip_on_gantry_update, synchronous=False)
 
 lcd = Lcd1602.init_lcd(2, None)
-running = False
+run_lcd_display_thread = True
 
 def display_lcd_info():
     """
     Display the current local IP address.
     """
 
-    while running:
-        try:
-            sleep(5)
-            lcd.clear()
-            lcd.message(f'IP address:\n{get_local_ip_address()}')
-        except:
-            pass
+    logger.info('Started LCD display thread.')
+
+    while run_lcd_display_thread:
+
+        message_display_sec = [
+            (f'IP address:\n{get_local_ip_address()}', 2.0),
+            (f'CPU temp (F):\n{get_cpu_temp(False):.0f}', 2.0)
+        ]
+        if lcd_state is not None:
+            message_display_sec.append((f'Status:\n{lcd_state}', 2.0))
+
+        for message, display_sec in message_display_sec:
+            try:
+                lcd.clear()
+                lcd.message(message)
+                sleep(display_sec)
+            except Exception as e:
+                logger.error(f'Failed to display message:  {e}')
     else:
-        logger.info('LCD loop is exiting.')
+        logger.info('LCD display thread is exiting.')
 
     lcd.clear()
     lcd.pcf8574.destroy()
@@ -164,9 +189,10 @@ def on_exit():
     Clean up, save state, etc.
     """
 
-    global running
-    running = False
+    global run_lcd_display_thread
+    run_lcd_display_thread = False
     lcd_thread.join()
+    logger.info('LCD display thread exited.')
 
     gantry.stop()
 
