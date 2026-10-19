@@ -14,6 +14,7 @@ from typing import Tuple, List, Optional, Union, cast
 
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy.interpolate import make_interp_spline
 from smbus2 import SMBus
 from spyrograph import Hypotrochoid
 # noinspection PyProtectedMember
@@ -1697,28 +1698,32 @@ class HGantry(Component):
 
         points = []
 
+        resolution = 5
         for letter in s:
-            letter_points = self.cursive_alphabet_data[letter]
-            x = [x for x, _, _ in letter_points]
-            y = [y for _, y, _ in letter_points]
+            letter_points = self.cursive_alphabet_data[letter]['points']
+            x = self.smooth([x for x, _, _ in letter_points], resolution)
+            y = self.smooth([y for _, y, _ in letter_points], resolution)
             pen_up = [pen_up for _, _, pen_up in letter_points]
-
+            points = list(zip(x, y, strict=True))
 
         return points
 
     @staticmethod
-    def interp(
+    def smooth(
             values: List[float],
             resolution: float
     ) -> List[float]:
 
-        num_values = len(values)
+        values_arr = np.array(values)
+        num_values = len(values_arr)
         if num_values > 3:
             t = np.linspace(0, 1, num_values)
-            t_interp = np.linspace(0, 1, int(num_values * resolution))
-            values_interp = make_interp_spline(t, x_arr, k=3)(t_interp)
+            t_smooth = np.linspace(0, 1, int(num_values * resolution))
+            values_smooth = make_interp_spline(t, values_arr, k=3)(t_smooth)
+        else:
+            values_smooth = values
 
-
+        return values_smooth
 
     def enable(
             self

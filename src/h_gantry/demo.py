@@ -33,7 +33,7 @@ def main():
         throughput_step_size=0.05,
         manual_buffer=False
     )
-    locking_serial.synchronize_remote_epoch_time(4)
+    # locking_serial.synchronize_remote_epoch_time(4)
     locking_serial.manual_buffer = True
 
     stepper_full_steps_per_revolution = 200
@@ -84,7 +84,7 @@ def main():
     )
     gantry.event(lambda s: logger.debug(f'Gantry position:  {s}'))
 
-    points = gantry.get_cursive_points('H')
+    points = gantry.get_cursive_points('e')
     plt.plot(
         [x for x, _ in points],
         [y for _, y in points]
