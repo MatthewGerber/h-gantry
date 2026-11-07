@@ -84,14 +84,6 @@ def main():
     )
     gantry.event(lambda s: logger.debug(f'Gantry position:  {s}'))
 
-    points = gantry.get_cursive_points('e')
-    plt.plot(
-        [x for x, _ in points],
-        [y for _, y in points]
-    )
-    plt.show()
-    return
-
     gantry.start()
 
     # investigating drift due to uncoordinated acceleration
