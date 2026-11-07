@@ -25,6 +25,7 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
+from raspberry_py.gpio.sensors import MjpgStreamer
 from raspberry_py.rest.application import RpyFlask, CallImageBytes
 from raspberry_py.utils import get_base_64_str
 
@@ -422,6 +423,17 @@ class HGantry(Component):
         self.joystick_min_speed_mm_per_sec = 20.0
         self.joystick_max_speed_mm_per_sec = 150.0
 
+        # camera
+        os.environ[MjpgStreamer.MJPG_STREAMER_HOME_ENV] = '/home/matthewgerber/Repos/mjpg-streamer/mjpg-streamer-experimental'
+        self.camera = MjpgStreamer(
+            device='/dev/video0',
+            width=640,
+            height=480,
+            fps=30,
+            quality=100,
+            port=8081
+        )
+
         # plotting
         self.plot_lock = Lock()
 
@@ -534,6 +546,7 @@ class HGantry(Component):
 
         self.adc.open(self.adc_bus_path)
         self.joystick.start_updating_state(self.joystick_update_interval_seconds)
+        self.camera.turn_on()
 
         # switch to manual buffering and start pumping
         self.arduino_serial.manual_buffer = True
@@ -566,6 +579,7 @@ class HGantry(Component):
         self.adc.close()
         self.left_stepper.stop()
         self.right_stepper.stop()
+        self.camera.turn_off()
 
         state = cast(HGantry.State, self.state).set(started=False)
         self.set_state(state)
@@ -1632,6 +1646,49 @@ class HGantry(Component):
 
         return call_image_bytes
 
+    def draw_text(
+            self,
+            text: str,
+            width_mm: float,
+            mm_per_sec: float,
+            return_to_current_position: bool,
+            block: bool,
+            ignore_moves_shorter_than_mm: float,
+    ):
+        """
+        Draw text.
+
+        :param text: Text.
+        :param width_mm: Width of drawing (mm).
+        :param mm_per_sec: Speed.
+        :param return_to_current_position: Whether to return to current position.
+        :param block: Whether to block until the movement is complete.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
+        """
+
+        logger.info(f'Drawing text:  {text}')
+
+        text_points = self.get_cursive_points(text, width_mm)
+
+        self.move_to_points(
+            text_points,
+            mm_per_sec,
+            return_to_current_position,
+            block,
+            ignore_moves_shorter_than_mm
+        )
+
+        # we can only return an image of the drawing if we blocked and waited for it to complete
+        if block:
+            call_image_bytes = CallImageBytes(self.get_line_plot())
+        else:
+            call_image_bytes = None
+
+        return call_image_bytes
+
+
     def wipe(
             self,
             y_spacing_mm: float,
@@ -2050,10 +2107,51 @@ class HGantry(Component):
             ('ignore_moves_shorter_than_mm', float, spiral_ignore_moves_textbox_id)
         ]
 
-        # text_textbox_id, text_textbox_ui_element = RpyFlask.get_textbox(
-        #     'text-text',
-        #     'Text'
-        # )
+        # text
+        text_textbox_id, text_textbox_ui_element = RpyFlask.get_textbox(
+            'text-text',
+            'Text',
+            '',
+            RpyFlask.TextboxType.TEXT
+        )
+
+        text_width_mm_textbox_id, text_width_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'text-width_mm',
+            'Width (mm)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        text_mm_per_sec_textbox_id, text_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'text-mm_per_sec',
+            'Speed (mm/sec)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        text_return_switch_id, text_return_switch_ui_element = RpyFlask.get_switch(
+            'text-return_to_current_position',
+            None,
+            None,
+            'Return to current position',
+            True,
+            None
+        )
+
+        text_ignore_moves_textbox_id, text_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
+            'text-ignore_moves_shorter_than_mm',
+            'Ignore moves shorter than (mm)',
+            '5.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        draw_text_dyn_args = [
+            ('text', str, text_textbox_id),
+            ('width_mm', float, text_width_mm_textbox_id),
+            ('mm_per_sec', float, text_mm_per_sec_textbox_id),
+            ('return_to_current_position', bool, text_return_switch_id),
+            ('ignore_moves_shorter_than_mm', float, text_ignore_moves_textbox_id)
+        ]
 
         # common argument for adding to the history
         add_to_history_and_block = {
@@ -2096,6 +2194,17 @@ class HGantry(Component):
             (spiral_mm_per_sec_textbox_id, spiral_mm_per_sec_textbox_ui_element),
             (spiral_return_switch_id, spiral_return_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
+
+            # text
+            RpyFlask.get_button(self.id, self.draw_text, add_to_history_and_block, draw_text_dyn_args, None, None, None, 'Draw'),
+            (text_textbox_id, text_textbox_ui_element),
+            (text_width_mm_textbox_id, text_width_mm_textbox_ui_element),
+            (text_mm_per_sec_textbox_id, text_mm_per_sec_textbox_ui_element),
+            (text_return_switch_id, text_return_switch_ui_element),
+            (text_ignore_moves_textbox_id, text_ignore_moves_textbox_ui_element),
+
+            # inside camera
+            RpyFlask.get_mjpg_streamer(self.id, self.camera.height, None, None, self.camera.port),
 
             # setup
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
