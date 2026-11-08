@@ -389,8 +389,8 @@ class HGantry(Component):
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
         # and joystick report synchronous events that land at move_to_point, which uses a lock to limit step commands
         # to the arduino.
-        joystick_x_ad_channel = 1
-        joystick_y_ad_channel = 0
+        joystick_x_ad_channel = 0
+        joystick_y_ad_channel = 1
         self.adc_bus_path = '/dev/i2c-1'
         self.adc = ADS7830(
             input_voltage=3.3,
@@ -431,7 +431,7 @@ class HGantry(Component):
             height=480,
             fps=30,
             quality=100,
-            port=8081
+            port=8082
         )
 
         # plotting
