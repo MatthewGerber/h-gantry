@@ -183,7 +183,7 @@ def display_lcd_info():
     lcd.clear()
     lcd.pcf8574.destroy()
 
-lcd_thread = Thread(target=display_lcd_info)
+lcd_thread = Thread(target=display_lcd_info, daemon=True)
 lcd_thread.start()
 
 def on_exit():

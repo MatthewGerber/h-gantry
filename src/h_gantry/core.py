@@ -419,7 +419,7 @@ class HGantry(Component):
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
         self.joystick_move_threshold = 0.1
-        self.joystick_move_sec = 0.25
+        self.joystick_move_sec = 0.1
         self.joystick_min_speed_mm_per_sec = 20.0
         self.joystick_max_speed_mm_per_sec = 150.0
 

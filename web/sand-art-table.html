@@ -171,6 +171,49 @@
         </div>
 
         <div class="accordion-item">
+            <h2 class="accordion-header" id="text">
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-text" aria-expanded="false" aria-controls="collapse-text"
+                        style="background-color: aliceblue;">
+                    Text
+                </button>
+            </h2>
+            <div id="collapse-text" class="accordion-collapse collapse" aria-labelledby="text">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md">
+                            <div id="div-text-text"></div>
+                            <div id="div-text-width_mm"></div>
+                            <div id="div-text-mm_per_sec"></div>
+                            <div id="div-text-ignore_moves_shorter_than_mm"></div>
+                            <div id="div-text-return_to_current_position"></div>
+                            <div id="div-gantry-1-draw_text"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="cam">
+                <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
+                        data-mdb-target="#collapse-cam" aria-expanded="false" aria-controls="collapse-cam"
+                        style="background-color: aliceblue;">
+                    Camera
+                </button>
+            </h2>
+            <div id="collapse-cam" class="accordion-collapse collapse" aria-labelledby="cam">
+                <div class="accordion-body" style="background-color: #fafafa;">
+                    <div class="row">
+                        <div class="col-md">
+                            <div id="div-gantry-1-mjpg_streamer"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
             <h2 class="accordion-header" id="setup">
                 <button class="accordion-button collapsed" type="button" data-mdb-toggle="collapse"
                         data-mdb-target="#collapse-setup" aria-expanded="false" aria-controls="collapse-setup"
@@ -230,9 +273,17 @@
 <script>$("#div-spiral-ignore_moves_shorter_than_mm").load("spiral-ignore_moves_shorter_than_mm.html");</script>
 <script>$("#div-gantry-1-draw_spiral").load("gantry-1-draw_spiral.html");</script>
 
+<script>$("#div-text-text").load("text-text.html");</script>
+<script>$("#div-text-width_mm").load("text-width_mm.html");</script>
+<script>$("#div-text-mm_per_sec").load("text-mm_per_sec.html");</script>
+<script>$("#div-text-return_to_current_position").load("text-return_to_current_position.html");</script>
+<script>$("#div-text-ignore_moves_shorter_than_mm").load("text-ignore_moves_shorter_than_mm.html");</script>
+<script>$("#div-gantry-1-draw_text").load("gantry-1-draw_text.html");</script>
+
+<script>$("#div-gantry-1-mjpg_streamer").load("gantry-1-mjpg_streamer.html")</script>
+
 <script>$("#div-gantry-1-enable-disable").load("gantry-1-enable-disable.html")</script>
 <script>$("#div-gantry-1-calibrate").load("gantry-1-calibrate.html");</script>
-
 
 </body>
 </html>
