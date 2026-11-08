@@ -1,0 +1,25 @@
+<button type="button" class="btn btn-primary" id="gantry-1-draw_text">Draw</button>
+<script type="module">
+import {rest_host, rest_port} from "./globals.js";
+const gantry_1_draw_text = $("#gantry-1-draw_text");
+function on_press_draw_text () {
+  let dyn_args_query = "&";
+  let dyn_arg_value = document.getElementById("text-text").value;
+  dyn_args_query = dyn_args_query + "text=str:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("text-width_mm").value;
+  dyn_args_query = dyn_args_query + "&width_mm=float:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("text-mm_per_sec").value;
+  dyn_args_query = dyn_args_query + "&mm_per_sec=float:" + dyn_arg_value;
+  dyn_arg_value = $("#text-return_to_current_position").is(":checked");
+  dyn_args_query = dyn_args_query + "&return_to_current_position=bool:" + dyn_arg_value;
+  dyn_arg_value = document.getElementById("text-ignore_moves_shorter_than_mm").value;
+  dyn_args_query = dyn_args_query + "&ignore_moves_shorter_than_mm=float:" + dyn_arg_value;
+  $.ajax({
+    url: "http://" + rest_host + ":" + rest_port + "/call/gantry-1/draw_text?add_to_history=bool:True&block=bool:True" + dyn_args_query,
+    type: "GET"
+  });
+}
+gantry_1_draw_text.on("mousedown touchstart", function () {
+  on_press_draw_text();
+});
+</script>
