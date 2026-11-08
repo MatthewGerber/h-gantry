@@ -14,6 +14,7 @@ from typing import Tuple, List, Optional, Union, cast
 
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy.interpolate import make_interp_spline
 from smbus2 import SMBus
 from spyrograph import Hypotrochoid
 # noinspection PyProtectedMember
@@ -24,6 +25,7 @@ from raspberry_py.gpio.adc import ADS7830
 from raspberry_py.gpio.communication import LockingSerial
 from raspberry_py.gpio.controls import Joystick
 from raspberry_py.gpio.motors import Stepper, StepperMotorDriverArduinoA4988, StepperMotorDriverAsynchronousReturn
+from raspberry_py.gpio.sensors import MjpgStreamer
 from raspberry_py.rest.application import RpyFlask, CallImageBytes
 from raspberry_py.utils import get_base_64_str
 
@@ -387,8 +389,8 @@ class HGantry(Component):
         # updates so that we get regular joystick events even when the joystick isn't changing position. both the adc
         # and joystick report synchronous events that land at move_to_point, which uses a lock to limit step commands
         # to the arduino.
-        joystick_y_ad_channel = 0
-        joystick_x_ad_channel = 1
+        joystick_x_ad_channel = 0
+        joystick_y_ad_channel = 1
         self.adc_bus_path = '/dev/i2c-1'
         self.adc = ADS7830(
             input_voltage=3.3,
@@ -396,8 +398,8 @@ class HGantry(Component):
             address=ADS7830.ADDRESS,
             command=ADS7830.COMMAND,
             channel_rescaled_range={
-                joystick_y_ad_channel: (-1.0, 1.0),
-                joystick_x_ad_channel: (-1.0, 1.0)
+                joystick_x_ad_channel: (-1.0, 1.0),
+                joystick_y_ad_channel: (-1.0, 1.0)
             }
         )
         self.adc.only_report_state_changes = False
@@ -416,9 +418,21 @@ class HGantry(Component):
         self.joystick.only_report_state_changes = False
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
-        self.joystick_move_mm = 10.0
+        self.joystick_move_threshold = 0.1
+        self.joystick_move_sec = 0.25
         self.joystick_min_speed_mm_per_sec = 20.0
         self.joystick_max_speed_mm_per_sec = 150.0
+
+        # camera
+        os.environ[MjpgStreamer.MJPG_STREAMER_HOME_ENV] = '/home/matthewgerber/Repos/mjpg-streamer/mjpg-streamer-experimental'
+        self.camera = MjpgStreamer(
+            device='/dev/video0',
+            width=640,
+            height=480,
+            fps=30,
+            quality=100,
+            port=8082
+        )
 
         # plotting
         self.plot_lock = Lock()
@@ -465,24 +479,37 @@ class HGantry(Component):
 
         else:
 
+            # the joystick moves through a range that is circular and centered at 0.0,0.0 with radius of 1.0. thus, the
+            # maximum distance from center to a joystick limit somewhere on the limiting circle is 1.0. use the linear
+            # distance from center to joystick location to check how far the joystick has been moved.
+            joystick_dist_from_center_0_to_1 = math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
+
             # ignore negligible joystick movements and noise
-            joystick_magnitude = math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
-            if joystick_magnitude > 0.5:
+            if joystick_dist_from_center_0_to_1 > self.joystick_move_threshold:
 
                 # move in the joystick direction as indicated by the vector norm
                 move_vector = np.array([joystick_state.x, joystick_state.y])
                 norm = np.linalg.norm(move_vector)
                 if norm != 0.0:
-                    move_x_mm, move_y_mm = (move_vector / norm) * self.joystick_move_mm
+
+                    # move speed ranges [min, max] based on [0.0, 1.0] distance of joystick from center
+                    move_speed_mm_per_sec = (
+                        self.joystick_min_speed_mm_per_sec +
+                        (
+                            self.joystick_max_speed_mm_per_sec -
+                            self.joystick_min_speed_mm_per_sec
+                        ) * joystick_dist_from_center_0_to_1
+                    )
+
+                    # move for a fixed duration of time in the direction of the normalized vector
+                    move_mm = move_speed_mm_per_sec * self.joystick_move_sec
+                    move_x_mm, move_y_mm = (move_vector / norm) * move_mm
+
                     try:
                         self.move_to_offset(
                             move_x_mm,
                             move_y_mm,
-                            self.joystick_min_speed_mm_per_sec +
-                            (
-                                self.joystick_max_speed_mm_per_sec -
-                                self.joystick_min_speed_mm_per_sec
-                            ) * (joystick_magnitude * 2.0 - 1.0),
+                            move_speed_mm_per_sec,
                             True
                         )
                     except ValueError as e:
@@ -519,6 +546,7 @@ class HGantry(Component):
 
         self.adc.open(self.adc_bus_path)
         self.joystick.start_updating_state(self.joystick_update_interval_seconds)
+        self.camera.turn_on()
 
         # switch to manual buffering and start pumping
         self.arduino_serial.manual_buffer = True
@@ -551,6 +579,7 @@ class HGantry(Component):
         self.adc.close()
         self.left_stepper.stop()
         self.right_stepper.stop()
+        self.camera.turn_off()
 
         state = cast(HGantry.State, self.state).set(started=False)
         self.set_state(state)
@@ -1617,6 +1646,49 @@ class HGantry(Component):
 
         return call_image_bytes
 
+    def draw_text(
+            self,
+            text: str,
+            width_mm: float,
+            mm_per_sec: float,
+            return_to_current_position: bool,
+            block: bool,
+            ignore_moves_shorter_than_mm: float,
+    ):
+        """
+        Draw text.
+
+        :param text: Text.
+        :param width_mm: Width of drawing (mm).
+        :param mm_per_sec: Speed.
+        :param return_to_current_position: Whether to return to current position.
+        :param block: Whether to block until the movement is complete.
+        :param ignore_moves_shorter_than_mm: Ignore point-to-point moves shorter than this many mm.
+        :return: Image of the completed drawing, which will be non-None only if `block` is True, which will wait for the
+        drawing to complete.
+        """
+
+        logger.info(f'Drawing text:  {text}')
+
+        text_points = self.get_cursive_points(text, width_mm)
+
+        self.move_to_points(
+            text_points,
+            mm_per_sec,
+            return_to_current_position,
+            block,
+            ignore_moves_shorter_than_mm
+        )
+
+        # we can only return an image of the drawing if we blocked and waited for it to complete
+        if block:
+            call_image_bytes = CallImageBytes(self.get_line_plot())
+        else:
+            call_image_bytes = None
+
+        return call_image_bytes
+
+
     def wipe(
             self,
             y_spacing_mm: float,
@@ -1686,39 +1758,64 @@ class HGantry(Component):
 
     def get_cursive_points(
             self,
-            s: str
+            s: str,
+            scale_to_width_mm: float
     ) -> List[Tuple[float, float]]:
         """
         Get cursive points for text.
 
         :param s: Text.
+        :param scale_to_width_mm:
         :return: Cursive points.
         """
 
-        points = []
+        x_vals = []
+        y_vals = []
+        resolution = 5
+        x_pos = 0.0
+        for char in s:
+            if char == ' ':
+                x_pos += 0.5
+            else:
+                char_data = self.cursive_alphabet_data[char]
+                char_points = char_data['points']
+                x_vals.extend([x + x_pos for x, _, _ in char_points])
+                y_vals.extend([y for _, y, _ in char_points])
+                x_pos += char_data['advance_width']
 
-        for letter in s:
-            letter_points = self.cursive_alphabet_data[letter]
-            x = [x for x, _, _ in letter_points]
-            y = [y for _, y, _ in letter_points]
-            pen_up = [pen_up for _, _, pen_up in letter_points]
+        smoothed_x = self.smooth(x_vals, resolution)
+        smoothed_y = self.smooth(y_vals, resolution)
 
+        curr_width = max(smoothed_x) - min(smoothed_y)
+        scale_factor = scale_to_width_mm / curr_width
+
+        points = list(zip(smoothed_x * scale_factor, smoothed_y * scale_factor, strict=True))
 
         return points
 
     @staticmethod
-    def interp(
+    def smooth(
             values: List[float],
             resolution: float
-    ) -> List[float]:
+    ) -> np.ndarray:
+        """
+        Smooth values at a resolution.
 
-        num_values = len(values)
+        :param values: Values.
+        :param resolution: Resolution.
+        :return: Smoothed values at resolution.
+        """
+
+        values_arr = np.array(values)
+        num_values = len(values_arr)
         if num_values > 3:
             t = np.linspace(0, 1, num_values)
-            t_interp = np.linspace(0, 1, int(num_values * resolution))
-            values_interp = make_interp_spline(t, x_arr, k=3)(t_interp)
+            t_smooth = np.linspace(0, 1, int(num_values * resolution))
+            values_smooth = make_interp_spline(t, values_arr, k=3)(t_smooth)
+        else:
+            values_smooth = np.array(values)
 
-
+        return values_smooth
 
     def enable(
             self
@@ -2010,6 +2107,52 @@ class HGantry(Component):
             ('ignore_moves_shorter_than_mm', float, spiral_ignore_moves_textbox_id)
         ]
 
+        # text
+        text_textbox_id, text_textbox_ui_element = RpyFlask.get_textbox(
+            'text-text',
+            'Text',
+            '',
+            RpyFlask.TextboxType.TEXT
+        )
+
+        text_width_mm_textbox_id, text_width_mm_textbox_ui_element = RpyFlask.get_textbox(
+            'text-width_mm',
+            'Width (mm)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        text_mm_per_sec_textbox_id, text_mm_per_sec_textbox_ui_element = RpyFlask.get_textbox(
+            'text-mm_per_sec',
+            'Speed (mm/sec)',
+            '100.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        text_return_switch_id, text_return_switch_ui_element = RpyFlask.get_switch(
+            'text-return_to_current_position',
+            None,
+            None,
+            'Return to current position',
+            True,
+            None
+        )
+
+        text_ignore_moves_textbox_id, text_ignore_moves_textbox_ui_element = RpyFlask.get_textbox(
+            'text-ignore_moves_shorter_than_mm',
+            'Ignore moves shorter than (mm)',
+            '5.0',
+            RpyFlask.TextboxType.NUMBER
+        )
+
+        draw_text_dyn_args = [
+            ('text', str, text_textbox_id),
+            ('width_mm', float, text_width_mm_textbox_id),
+            ('mm_per_sec', float, text_mm_per_sec_textbox_id),
+            ('return_to_current_position', bool, text_return_switch_id),
+            ('ignore_moves_shorter_than_mm', float, text_ignore_moves_textbox_id)
+        ]
+
         # common argument for adding to the history
         add_to_history_and_block = {
             'add_to_history': True,
@@ -2017,7 +2160,8 @@ class HGantry(Component):
         }
 
         return [
-            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
+
+            # plot visual with move buttons
             RpyFlask.get_button(self.id, self.center, {**add_to_history_and_block, 'mm_per_sec': 100.0}, None, None, None, None, 'Center'),
             RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history_and_block, 'x_offset_mm': -10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0}, None, None, None, None, '<', 'left'),
             RpyFlask.get_button(self.id, self.move_to_offset, {**add_to_history_and_block, 'x_offset_mm': 10.0, 'y_offset_mm': 0.0, 'mm_per_sec': 100.0}, None, None, None, None, '>', 'right'),
@@ -2026,10 +2170,12 @@ class HGantry(Component):
             RpyFlask.get_image(self.id, 600, self.get_line_plot, timedelta(seconds=1.0), None, 1.0),
             RpyFlask.get_button(self.id, self.clear_point_history, None, None, None, None, None, 'Clear Plot'),
 
+            # wipe
             RpyFlask.get_button(self.id, self.wipe, add_to_history_and_block, wipe_dyn_args, None, None, None, 'Wipe'),
             (wipe_y_spacing_mm_textbox_id, wipe_y_spacing_mm_textbox_ui_element),
             (wipe_mm_per_sec_textbox_id, wipe_mm_per_sec_textbox_ui_element),
 
+            # spirograph
             RpyFlask.get_button(self.id, self.draw_spirograph_from_params, add_to_history_and_block, draw_spirograph_dyn_args, None, None, None, 'Draw'),
             (spiro_R_textbox_id, spiro_R_textbox_ui_element),
             (spiro_r_textbox_id, spiro_r_textbox_ui_element),
@@ -2040,6 +2186,7 @@ class HGantry(Component):
             (spiro_ignore_moves_textbox_id, spiro_ignore_moves_textbox_ui_element),
             (spiro_return_switch_id, spiro_return_switch_ui_element),
 
+            # spiral
             RpyFlask.get_button(self.id, self.draw_spiral, add_to_history_and_block, draw_spiral_dyn_args, None, None, None, 'Draw'),
             (spiral_outer_diameter_mm_textbox_id, spiral_outer_diameter_mm_textbox_ui_element),
             (spiral_loop_spacing_mm_textbox_id, spiral_loop_spacing_mm_textbox_ui_element),
@@ -2048,6 +2195,19 @@ class HGantry(Component):
             (spiral_return_switch_id, spiral_return_switch_ui_element),
             (spiral_ignore_moves_textbox_id, spiral_ignore_moves_textbox_ui_element),
 
+            # text
+            RpyFlask.get_button(self.id, self.draw_text, add_to_history_and_block, draw_text_dyn_args, None, None, None, 'Draw'),
+            (text_textbox_id, text_textbox_ui_element),
+            (text_width_mm_textbox_id, text_width_mm_textbox_ui_element),
+            (text_mm_per_sec_textbox_id, text_mm_per_sec_textbox_ui_element),
+            (text_return_switch_id, text_return_switch_ui_element),
+            (text_ignore_moves_textbox_id, text_ignore_moves_textbox_ui_element),
+
+            # inside camera
+            RpyFlask.get_mjpg_streamer(self.id, self.camera.height, None, None, self.camera.port),
+
+            # setup
+            RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
             RpyFlask.get_switch(self.id, self.start, self.stop, 'Started', False, (self.started, timedelta(seconds=1))),
             RpyFlask.get_switch(self.id, self.enable, self.disable, 'Enabled', False, (self.enabled, timedelta(seconds=1)))
         ]

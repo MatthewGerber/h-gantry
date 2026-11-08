@@ -33,7 +33,7 @@ def main():
         throughput_step_size=0.05,
         manual_buffer=False
     )
-    locking_serial.synchronize_remote_epoch_time(4)
+    # locking_serial.synchronize_remote_epoch_time(4)
     locking_serial.manual_buffer = True
 
     stepper_full_steps_per_revolution = 200
@@ -83,14 +83,6 @@ def main():
         cursive_alphabet_data_path=join(dirname(str(__file__)), 'cursive_alphabet_data.json')
     )
     gantry.event(lambda s: logger.debug(f'Gantry position:  {s}'))
-
-    points = gantry.get_cursive_points('H')
-    plt.plot(
-        [x for x, _ in points],
-        [y for _, y in points]
-    )
-    plt.show()
-    return
 
     gantry.start()
 
