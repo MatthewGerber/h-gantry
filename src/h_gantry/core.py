@@ -1670,7 +1670,7 @@ class HGantry(Component):
 
         logger.info(f'Drawing text:  {text}')
 
-        text_points = self.get_cursive_points(text, width_mm)
+        text_points = self.get_cursive_points(text, width_mm, True)
 
         self.move_to_points(
             text_points,
@@ -1759,13 +1759,16 @@ class HGantry(Component):
     def get_cursive_points(
             self,
             s: str,
-            scale_to_width_mm: float
+            width_mm: float,
+            center: bool
     ) -> List[Tuple[float, float]]:
         """
         Get cursive points for text.
 
         :param s: Text.
-        :param scale_to_width_mm:
+        :param width_mm:
+        :param center: Whether to center the points. If False, then the points will begin at the current gantry
+        location.
         :return: Cursive points.
         """
 
@@ -1783,13 +1786,30 @@ class HGantry(Component):
                 y_vals.extend([y for _, y, _ in char_points])
                 x_pos += char_data['advance_width']
 
+        # smooth points
         smoothed_x = self.smooth(x_vals, resolution)
         smoothed_y = self.smooth(y_vals, resolution)
 
+        # scale to size
         curr_width = max(smoothed_x) - min(smoothed_y)
-        scale_factor = scale_to_width_mm / curr_width
+        scale_factor = width_mm / curr_width
+        scaled_x = smoothed_x * scale_factor
+        scaled_y = smoothed_y * scale_factor
 
-        points = list(zip(smoothed_x * scale_factor, smoothed_y * scale_factor, strict=True))
+        # position
+        if center:
+            points_width_mm = max(scaled_x) - min(scaled_x)
+            start_x = self.left_right_mm / 2.0 - points_width_mm / 2.0
+            points_height_mm = max(scaled_y) - min(scaled_y)
+            start_y = self.bottom_top_mm / 2.0 - points_height_mm / 2.0
+        else:
+            start_x = self.x
+            start_y = self.y
+
+        shifted_x = scaled_x + start_x
+        shifted_y = scaled_y + start_y
+
+        points = list(zip(shifted_x, shifted_y, strict=True))
 
         return points
 
