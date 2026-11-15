@@ -419,9 +419,12 @@ class HGantry(Component):
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
         self.joystick_move_threshold = 0.1
-        self.joystick_move_sec = 0.1
+        self.joystick_move_sec = 0.05
         self.joystick_min_speed_mm_per_sec = 20.0
         self.joystick_max_speed_mm_per_sec = 150.0
+        self.joystick_start_moving_timestamp = None
+        self.joystick_move_until_timestamp = None
+        self.joystick_move_overrun_sec = 0.2
 
         # camera
         os.environ[MjpgStreamer.MJPG_STREAMER_HOME_ENV] = '/home/matthewgerber/Repos/mjpg-streamer/mjpg-streamer-experimental'
@@ -485,35 +488,58 @@ class HGantry(Component):
             joystick_dist_from_center_0_to_1 = math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
 
             # ignore negligible joystick movements and noise
-            if joystick_dist_from_center_0_to_1 > self.joystick_move_threshold:
+            joystick_is_moved = joystick_dist_from_center_0_to_1 > self.joystick_move_threshold
 
-                # move in the joystick direction as indicated by the vector norm
-                move_vector = np.array([joystick_state.x, joystick_state.y])
-                norm = np.linalg.norm(move_vector)
-                if norm != 0.0:
+            if joystick_is_moved:
 
-                    # move speed ranges [min, max] based on [0.0, 1.0] distance of joystick from center
-                    move_speed_mm_per_sec = (
-                        self.joystick_min_speed_mm_per_sec +
-                        (
-                            self.joystick_max_speed_mm_per_sec -
-                            self.joystick_min_speed_mm_per_sec
-                        ) * joystick_dist_from_center_0_to_1
-                    )
+                if self.joystick_start_moving_timestamp is None:
+                    self.joystick_start_moving_timestamp = time()
 
-                    # move for a fixed duration of time in the direction of the normalized vector
-                    move_mm = move_speed_mm_per_sec * self.joystick_move_sec
-                    move_x_mm, move_y_mm = (move_vector / norm) * move_mm
+                if self.joystick_move_until_timestamp is None:
+                    overrun_sec = 0.0
+                else:
+                    overrun_sec = self.joystick_move_until_timestamp - time()
 
-                    try:
-                        self.move_to_offset(
-                            move_x_mm,
-                            move_y_mm,
-                            move_speed_mm_per_sec,
-                            True
+                if overrun_sec < self.joystick_move_overrun_sec:
+
+                    # move in the joystick direction as indicated by the vector norm
+                    move_vector = np.array([joystick_state.x, joystick_state.y])
+                    norm = np.linalg.norm(move_vector)
+                    if norm != 0.0:
+
+                        # move speed ranges [min, max] based on [0.0, 1.0] distance of joystick from center
+                        move_speed_mm_per_sec = (
+                            self.joystick_min_speed_mm_per_sec +
+                            (
+                                self.joystick_max_speed_mm_per_sec -
+                                self.joystick_min_speed_mm_per_sec
+                            ) * joystick_dist_from_center_0_to_1
                         )
-                    except ValueError as e:
-                        logger.error(f'Failed to move according to joystick:  {e}')
+
+                        # move for a fixed duration of time in the direction of the normalized vector
+                        move_mm = move_speed_mm_per_sec * self.joystick_move_sec
+                        move_x_mm, move_y_mm = (move_vector / norm) * move_mm
+
+                        try:
+
+                            self.move_to_offset(
+                                move_x_mm,
+                                move_y_mm,
+                                move_speed_mm_per_sec,
+                                False
+                            )
+
+                            if self.joystick_move_until_timestamp is None:
+                                self.joystick_move_until_timestamp = time()
+
+                            self.joystick_move_until_timestamp += self.joystick_move_sec
+
+                        except ValueError:
+                            pass
+
+            elif self.joystick_start_moving_timestamp is not None:
+                self.clear_move_buffer()
+                self.joystick_start_moving_timestamp = self.joystick_move_until_timestamp = None
 
     def start(
             self
