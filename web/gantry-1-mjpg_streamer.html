@@ -3,15 +3,30 @@
 import {rest_host} from "./globals.js";
 let image_id = 0;
 let loaded_images = [];
+let old_url = null;
 async function insert_new_image_gantry_1_mjpg_streamer() {
+  await new Promise(r => requestAnimationFrame(r));
   let img = new Image();
   img.style.position = "absolute";
   img.style.zIndex = "-1";
   img.onload = image_loaded;
   img.onerror = image_error;
-  img.src = "http://" + rest_host + ":8082/?action=snapshot&n=" + (++image_id);
-  let gantry_1_mjpg_streamer = document.getElementById("gantry-1-mjpg_streamer");
-  gantry_1_mjpg_streamer.insertBefore(img, gantry_1_mjpg_streamer.firstChild);
+  const img_endpoint = "http://" + rest_host + ":8082/?action=snapshot&n=" + (++image_id);
+  const response = await fetch(img_endpoint);
+  if (response.ok) {
+    const image_blob = await response.blob();
+    const new_url = URL.createObjectURL(image_blob);
+    img.src = new_url;
+    if (old_url) {
+      URL.revokeObjectURL(old_url);
+    }
+    old_url = new_url;
+    let gantry_1_mjpg_streamer = document.getElementById("gantry-1-mjpg_streamer");
+    gantry_1_mjpg_streamer.insertBefore(img, gantry_1_mjpg_streamer.firstChild);
+  }
+  else {
+    await image_error();
+  }
 }
 async function image_loaded() {
   this.style.zIndex = image_id;

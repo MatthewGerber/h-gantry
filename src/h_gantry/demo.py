@@ -86,7 +86,7 @@ def main():
 
     # gantry.x = 20
     # gantry.y = 20
-    # points = gantry.get_cursive_points('hello', 100.0, False)
+    # points = gantry.get_cursive_points('hello', 100.0, True)
     # plt.plot(
     #     [x for x, _ in points],
     #     [y for _, y in points]

@@ -376,7 +376,7 @@ class HGantry(Component):
         self.moves_pending_in_python: List[Move] = []
         self.moves_pending_in_arduino: deque[Move] = deque()
         self.withhold_moves_from_arduino = False
-        self.move_pipeline_latency_sec = 0.0
+        self.move_pipeline_latency_sec = 0.0  # difference between the expected and actual move completion times (seconds; positive if move completed later than expected)
         self.min_moves_pending_in_arduino = 20  # keep moves in arduino to maintain momentum -- should match MIN_STEP_BUFFER_LEN_BEFORE_FLUSHING_STEPPER_DONE_RESPONSE_BUFFER to ensure that we send moves right when arduino needs them
         self.max_moves_pending_in_arduino = 500  # arduino has limited memory for its move buffer
         self.completed_move_points: List[Tuple[float, float]] = []
@@ -418,10 +418,12 @@ class HGantry(Component):
         self.joystick.only_report_state_changes = False
         self.joystick.event(lambda s: self.joystick_move(s))
         self.joystick_update_interval_seconds = 0.01
-        self.joystick_move_threshold = 0.1
-        self.joystick_move_sec = 0.1
+        self.joystick_move_threshold = 0.05
+        self.joystick_move_sec = 0.05
         self.joystick_min_speed_mm_per_sec = 20.0
-        self.joystick_max_speed_mm_per_sec = 150.0
+        self.joystick_max_speed_mm_per_sec = 200.0
+        self.joystick_move_until_timestamp = None
+        self.joystick_move_overrun_sec = 0.1
 
         # camera
         os.environ[MjpgStreamer.MJPG_STREAMER_HOME_ENV] = '/home/matthewgerber/Repos/mjpg-streamer/mjpg-streamer-experimental'
@@ -485,35 +487,59 @@ class HGantry(Component):
             joystick_dist_from_center_0_to_1 = math.sqrt(joystick_state.x ** 2 + joystick_state.y ** 2)
 
             # ignore negligible joystick movements and noise
-            if joystick_dist_from_center_0_to_1 > self.joystick_move_threshold:
+            joystick_is_moved = joystick_dist_from_center_0_to_1 > self.joystick_move_threshold
 
-                # move in the joystick direction as indicated by the vector norm
-                move_vector = np.array([joystick_state.x, joystick_state.y])
-                norm = np.linalg.norm(move_vector)
-                if norm != 0.0:
+            if joystick_is_moved:
 
-                    # move speed ranges [min, max] based on [0.0, 1.0] distance of joystick from center
-                    move_speed_mm_per_sec = (
-                        self.joystick_min_speed_mm_per_sec +
-                        (
-                            self.joystick_max_speed_mm_per_sec -
-                            self.joystick_min_speed_mm_per_sec
-                        ) * joystick_dist_from_center_0_to_1
-                    )
+                if self.joystick_move_until_timestamp is None:
+                    joystick_overrun_sec = 0.0
+                else:
+                    joystick_overrun_sec = self.joystick_move_until_timestamp - time()
 
-                    # move for a fixed duration of time in the direction of the normalized vector
-                    move_mm = move_speed_mm_per_sec * self.joystick_move_sec
-                    move_x_mm, move_y_mm = (move_vector / norm) * move_mm
+                if joystick_overrun_sec < self.joystick_move_overrun_sec:
 
-                    try:
-                        self.move_to_offset(
-                            move_x_mm,
-                            move_y_mm,
-                            move_speed_mm_per_sec,
-                            True
+                    # move in the joystick direction as indicated by the vector norm
+                    move_vector = np.array([joystick_state.x, joystick_state.y])
+                    norm = np.linalg.norm(move_vector)
+                    if norm != 0.0:
+
+                        # move speed ranges [min, max] based on [0.0, 1.0] distance of joystick from center
+                        move_speed_mm_per_sec = (
+                            self.joystick_min_speed_mm_per_sec +
+                            (
+                                self.joystick_max_speed_mm_per_sec -
+                                self.joystick_min_speed_mm_per_sec
+                            ) * joystick_dist_from_center_0_to_1
                         )
-                    except ValueError as e:
-                        logger.error(f'Failed to move according to joystick:  {e}')
+
+                        # move for a fixed duration of time in the direction of the normalized vector
+                        move_mm = move_speed_mm_per_sec * self.joystick_move_sec
+                        move_x_mm, move_y_mm = (move_vector / norm) * move_mm
+
+                        try:
+
+                            self.move_to_offset(
+                                move_x_mm,
+                                move_y_mm,
+                                move_speed_mm_per_sec,
+                                False
+                            )
+
+                            next_and_last_moves_to_finish = self.get_moves_finishing_next_and_last()
+                            if next_and_last_moves_to_finish is None:
+                                self.joystick_move_until_timestamp = time()
+                            else:
+                                _, last_move_to_finish = next_and_last_moves_to_finish
+                                self.joystick_move_until_timestamp = (
+                                    last_move_to_finish.end_time_epoch + self.move_pipeline_latency_sec
+                                )
+
+                        except ValueError:
+                            pass
+
+            elif self.joystick_move_until_timestamp is not None:
+                self.clear_move_buffer()
+                self.joystick_move_until_timestamp = None
 
     def start(
             self
