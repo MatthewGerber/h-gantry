@@ -2250,7 +2250,7 @@ class HGantry(Component):
             (text_ignore_moves_textbox_id, text_ignore_moves_textbox_ui_element),
 
             # inside camera
-            RpyFlask.get_mjpg_streamer(self.id, self.camera.height, None, None, self.camera.port),
+            RpyFlask.get_mjpg_streamer(self.id, self.camera.height, None, None, self.camera.port, True),
 
             # setup
             RpyFlask.get_button(self.id, self.calibrate, {'mm_per_sec': 100.0}, None, None, None, None, 'Calibrate'),
