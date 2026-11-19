@@ -9,6 +9,7 @@ async function insert_new_image_gantry_1_mjpg_streamer() {
   let img = new Image();
   img.style.position = "absolute";
   img.style.zIndex = "-1";
+  img.style.transform = "rotate(180deg)";
   img.onload = image_loaded;
   img.onerror = image_error;
   const img_endpoint = "http://" + rest_host + ":8082/?action=snapshot&n=" + (++image_id);
